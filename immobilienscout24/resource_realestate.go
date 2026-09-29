@@ -63,15 +63,20 @@ func (r *realEstateResource) Schema(_ context.Context, _ resource.SchemaRequest,
 	}
 }
 
-// Wire up the client from the provider
+// Configure wires up the client from the provider.
 func (r *realEstateResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
-	r.client = req.ProviderData.(*Client)
+	client, ok := req.ProviderData.(*Client)
+	if !ok {
+		resp.Diagnostics.AddError("Unexpected provider data", "Expected *Client. This is a bug in the provider.")
+		return
+	}
+	r.client = client
 }
 
-// Insert a new real estate object
+// Create inserts a new real estate object.
 func (r *realEstateResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data realEstateResourceModel
 	diags := req.Plan.Get(ctx, &data)
@@ -127,7 +132,7 @@ func (r *realEstateResource) Create(ctx context.Context, req resource.CreateRequ
 	resp.Diagnostics.Append(diags...)
 }
 
-// Stub: Not implemented for MVP
+// Read, Update and Delete are not implemented yet.
 func (r *realEstateResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 }
 func (r *realEstateResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -135,9 +140,10 @@ func (r *realEstateResource) Update(ctx context.Context, req resource.UpdateRequ
 func (r *realEstateResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 }
 
-// Helper: Escape XML special characters
+// xmlEscape escapes XML special characters.
 func xmlEscape(s string) string {
 	var buf bytes.Buffer
-	xml.EscapeText(&buf, []byte(s))
+	// Writing to a bytes.Buffer cannot fail.
+	_ = xml.EscapeText(&buf, []byte(s))
 	return buf.String()
 }
