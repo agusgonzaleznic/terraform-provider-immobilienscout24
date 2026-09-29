@@ -7,6 +7,8 @@ on:
   pull_request:
   schedule:
     - cron: '0 7 * * 1'
+  # Runs the same full-history scan as the schedule, on demand.
+  workflow_dispatch:
 
 # No job here writes to the repository, so the default token is narrowed to the
 # minimum each one needs. CodeQL cannot upload its results without
@@ -47,9 +49,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
+      # No base or head: the action then picks the range from the event. A push
+      # scans the pushed commits, a pull request its own commits, and the
+      # schedule or a manual run the whole history. A fixed base of the default
+      # branch equals HEAD on every push to main, and the action exits with
+      # "BASE and HEAD commits are the same" without scanning anything.
       - name: TruffleHog Scan
         uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85 # v3.97.9
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
