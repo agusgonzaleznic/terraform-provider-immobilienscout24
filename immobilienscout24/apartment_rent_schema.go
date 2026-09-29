@@ -1,6 +1,8 @@
 package immobilienscout24
 
 import (
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/float64validator"
@@ -58,16 +60,26 @@ func price(desc string) schema.Float64Attribute {
 	}
 }
 
-func enum(desc string, values []string) schema.StringAttribute {
+// The API fills these fields in when they are left out, so the schema carries
+// the same defaults. Without them every create would end with Terraform
+// reporting an inconsistent result (seen on the sandbox, 2026-09-29).
+func enumWithDefault(desc string, values []string, def string) schema.StringAttribute {
 	return schema.StringAttribute{
-		MarkdownDescription: desc + " One of " + quotedEnum(values) + ".",
+		MarkdownDescription: desc + " One of " + quotedEnum(values) + ". Defaults to `" + def + "`, as the API does.",
 		Optional:            true,
+		Computed:            true,
+		Default:             stringdefault.StaticString(def),
 		Validators:          []validator.String{stringvalidator.OneOf(values...)},
 	}
 }
 
-func optionalBool(desc string) schema.BoolAttribute {
-	return schema.BoolAttribute{MarkdownDescription: desc, Optional: true}
+func boolDefaultFalse(desc string) schema.BoolAttribute {
+	return schema.BoolAttribute{
+		MarkdownDescription: desc + " Defaults to `false`, as the API does.",
+		Optional:            true,
+		Computed:            true,
+		Default:             booldefault.StaticBool(false),
+	}
 }
 
 // apartmentRentSchema is the schema of immobilienscout24_apartment_rent. Each
@@ -151,14 +163,14 @@ func apartmentRentSchema() schema.Schema {
 			"furnishing_note":  textNote("Description of the furnishing (`furnishingNote`)."),
 			"location_note":    textNote("Description of the location (`locationNote`)."),
 			"other_note":       textNote("Other information (`otherNote`)."),
-			"apartment_type":   enum("Apartment type (`apartmentType`).", apartmentTypes),
+			"apartment_type":   enumWithDefault("Apartment type (`apartmentType`).", apartmentTypes, "NO_INFORMATION"),
 			"floor": schema.Int64Attribute{
 				MarkdownDescription: "Floor the apartment is on (`floor`), 0 to 999.",
 				Optional:            true,
 				Validators:          []validator.Int64{int64validator.Between(0, 999)},
 			},
-			"lift":      optionalBool("Whether the building has a lift (`lift`)."),
-			"cellar":    enum("Cellar (`cellar`).", yesNotApplicable),
+			"lift":      boolDefaultFalse("Whether the building has a lift (`lift`)."),
+			"cellar":    enumWithDefault("Cellar (`cellar`).", yesNotApplicable, "NOT_APPLICABLE"),
 			"free_from": optionalStringWithMax("When the apartment is available, as free text (`freeFrom`), at most 50 characters.", 50),
 			"number_of_floors": schema.Int64Attribute{
 				MarkdownDescription: "Number of floors of the building (`numberOfFloors`), 0 to 999.",
@@ -174,9 +186,9 @@ func apartmentRentSchema() schema.Schema {
 			"service_charge": price("Monthly service charge (`serviceCharge`, Nebenkosten)."),
 			"deposit":        optionalStringWithMax("Deposit, as free text (`deposit`), at most 50 characters.", 50),
 			"heating_costs":  price("Monthly heating costs (`heatingCosts`)."),
-			"heating_costs_in_service_charge": enum("Whether the heating costs are included in the service charge "+
-				"(`heatingCostsInServiceCharge`). Must not be `NOT_APPLICABLE` when `heating_costs` is set.", yesNoNotApplicable),
-			"pets_allowed": enum("Whether pets are allowed (`petsAllowed`).", petsAllowedValues),
+			"heating_costs_in_service_charge": enumWithDefault("Whether the heating costs are included in the service charge "+
+				"(`heatingCostsInServiceCharge`). Must be `YES` or `NO` when `heating_costs` is set.", yesNoNotApplicable, "NOT_APPLICABLE"),
+			"pets_allowed": enumWithDefault("Whether pets are allowed (`petsAllowed`).", petsAllowedValues, "NO_INFORMATION"),
 			"living_space": schema.Float64Attribute{
 				MarkdownDescription: "Living space in square metres (`livingSpace`).",
 				Required:            true,
@@ -187,9 +199,9 @@ func apartmentRentSchema() schema.Schema {
 				Required:            true,
 				Validators:          []validator.Float64{float64validator.Between(1, 999.99)},
 			},
-			"built_in_kitchen": optionalBool("Whether there is a built-in kitchen (`builtInKitchen`)."),
-			"balcony":          optionalBool("Whether there is a balcony (`balcony`)."),
-			"garden":           optionalBool("Whether there is a garden (`garden`)."),
+			"built_in_kitchen": boolDefaultFalse("Whether there is a built-in kitchen (`builtInKitchen`)."),
+			"balcony":          boolDefaultFalse("Whether there is a balcony (`balcony`)."),
+			"garden":           boolDefaultFalse("Whether there is a garden (`garden`)."),
 			"courtage": schema.SingleNestedAttribute{
 				MarkdownDescription: "Broker commission (`courtage`).",
 				Required:            true,

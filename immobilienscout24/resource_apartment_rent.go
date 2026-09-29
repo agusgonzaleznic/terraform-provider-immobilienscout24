@@ -68,9 +68,11 @@ func (r *apartmentRentResource) ValidateConfig(ctx context.Context, req resource
 	}
 	// Field table: "If you've entered a value for heating costs, than
 	// NOT_APPLICABLE is not allowed for this attribute."
-	if !heatingCosts.IsNull() && heatingIncluded.ValueString() == "NOT_APPLICABLE" {
+	// The attribute defaults to NOT_APPLICABLE, so leaving it out counts too.
+	if !heatingCosts.IsNull() && !heatingIncluded.IsUnknown() &&
+		(heatingIncluded.IsNull() || heatingIncluded.ValueString() == "NOT_APPLICABLE") {
 		resp.Diagnostics.AddAttributeError(path.Root("heating_costs_in_service_charge"), "Invalid combination",
-			"heating_costs_in_service_charge cannot be \"NOT_APPLICABLE\" when heating_costs is set.")
+			"Set heating_costs_in_service_charge to \"YES\" or \"NO\" when heating_costs is set.")
 	}
 }
 

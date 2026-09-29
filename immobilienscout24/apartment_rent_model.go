@@ -160,11 +160,13 @@ func fromDocument(id string, doc *apartmentRentDocument, prior *apartmentRentMod
 			Postcode:    keepText(a.Postcode, pa.Postcode, true),
 			City:        keepText(a.City, pa.City, true),
 		}
-		// ImmobilienScout24 geocodes addresses that come without coordinates,
-		// so coordinates in a response are only managed when the prior model
-		// had them. On import (no prior address) they are taken as returned.
+		// ImmobilienScout24 geocodes addresses that come without coordinates
+		// (seen on the sandbox, 2026-09-29), so coordinates in a response are
+		// only managed when the prior model had them. That includes import:
+		// otherwise every import of a geocoded object would differ from a
+		// configuration without coordinates.
 		priorCoords := (*coordinatesModel)(nil)
-		manage := prior.Address == nil
+		manage := false
 		if prior.Address != nil && prior.Address.Coordinates != nil {
 			priorCoords, manage = prior.Address.Coordinates, true
 		}
