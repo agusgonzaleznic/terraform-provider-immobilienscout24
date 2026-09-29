@@ -5,9 +5,8 @@ An unofficial Terraform and OpenTofu provider for [ImmobilienScout24](https://ww
 Terraform Plugin Framework.
 
 > **Status:** early. It manages one resource, `immobilienscout24_apartment_rent`, with create, read, update,
-> delete and import. The implementation follows the API documentation and the live XSD, and is tested
-> against a local fake of the API. It has **not been run against the real sandbox yet**, and it is not
-> published to a registry.
+> delete and import. It follows the API documentation and the live XSD, and its acceptance test passes
+> against the ImmobilienScout24 sandbox. It has not been used against the production API.
 
 ## Requirements
 
@@ -107,9 +106,8 @@ terraform import immobilienscout24_apartment_rent.example 315000001
 
 ## Limitations
 
-- **Verified against the documentation, not the live API.** The request format, paths, headers and responses
-  follow the official docs and the live XSD, and a local fake enforces them in the tests. A live test against the
-  sandbox exists but has not been run yet; see [Development](#development).
+- **Tested on the sandbox, not on production.** Production API access is paid, so the provider has only been
+  run against the sandbox; see [Development](#development).
 - **No publishing.** New listings are created unpublished, and the provider cannot publish or unpublish them yet.
 - **Apartment rentals only.** Other real estate types (houses, apartments for sale, commercial) are not supported.
   Importing an object of another type fails with an error rather than misreading it.
