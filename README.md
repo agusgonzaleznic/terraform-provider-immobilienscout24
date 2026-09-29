@@ -4,9 +4,17 @@ An unofficial Terraform and OpenTofu provider for [ImmobilienScout24](https://ww
 [ImmobilienScout24 Import/Export API](https://api.immobilienscout24.de/api-docs/import-export/introduction/) and the
 Terraform Plugin Framework.
 
-> **Status:** early. It manages one resource, `immobilienscout24_apartment_rent`, with create, read, update,
-> delete and import. It follows the API documentation and the live XSD, and its acceptance test passes
-> against the ImmobilienScout24 sandbox. It has not been used against the production API.
+> **Status:** early. It manages apartment rentals and their publication. It follows the API documentation, the
+> live XSD and publish calls observed on the ImmobilienScout24 sandbox, and its live acceptance test, which
+> creates, publishes, updates, imports and destroys a listing, passes against the sandbox. It has not been
+> used against the production API.
+
+## Resources
+
+| Resource | Manages |
+|----------|---------|
+| [`immobilienscout24_apartment_rent`](docs/resources/apartment_rent.md) | An apartment for rent: create, read, update, delete, import |
+| [`immobilienscout24_publication`](docs/resources/publication.md) | The publication of a listing on one publish channel: create, read, delete, import |
 
 ## Requirements
 
@@ -104,11 +112,47 @@ listing can be imported by its scout object id:
 terraform import immobilienscout24_apartment_rent.example 315000001
 ```
 
+## Publishing
+
+New listings are created unpublished. An `immobilienscout24_publication` publishes a listing on one publish
+channel, and destroying it unpublishes the listing on that channel only:
+
+```hcl
+resource "immobilienscout24_publication" "portal" {
+  real_estate_id = immobilienscout24_apartment_rent.example.id
+  channel_id     = "10000" # ImmobilienScout24 (www.immobilienscout24.de)
+}
+
+resource "immobilienscout24_publication" "homepage" {
+  real_estate_id = immobilienscout24_apartment_rent.example.id
+  channel_id     = "10001" # the realtor's own homepage
+}
+```
+
+> **Warning:** in production, publishing on channel `10000` uses the paid contingent of your ImmobilienScout24
+> account, and without contingent the API answers `No contingent available`. Try a configuration on the sandbox
+> first (the default `environment`), where no bookings take place.
+
+- Publishing on `10000` activates the listing. Unpublishing it there deactivates the listing, even while it stays
+  published on `10001`.
+- Changing `real_estate_id` or `channel_id` unpublishes and publishes anew. Deleting a listing also removes its
+  publications.
+- If a listing is already published on the channel, creating the publication fails with the command that imports
+  it. A publication's id is `{real_estate_id}_{channel_id}`:
+
+  ```sh
+  terraform import immobilienscout24_publication.portal 315000001_10000
+  ```
+
+- The API documentation asks for publish requests one after the other, so the provider sends them one at a time,
+  even when Terraform creates several publications in parallel.
+
 ## Limitations
 
 - **Tested on the sandbox, not on production.** Production API access is paid, so the provider has only been
   run against the sandbox; see [Development](#development).
-- **No publishing.** New listings are created unpublished, and the provider cannot publish or unpublish them yet.
+- **Publish requests wait for each other within one provider configuration.** Two provider configurations (for
+  example aliases) for the same account can still publish in parallel.
 - **Apartment rentals only.** Other real estate types (houses, apartments for sale, commercial) are not supported.
   Importing an object of another type fails with an error rather than misreading it.
 - **Partial field coverage.** The resource models the mandatory fields and the common optional ones. Updates are
@@ -130,10 +174,11 @@ make generate  # regenerate docs/ from the schema and examples/
 ```
 
 The acceptance tests start an in-process fake of the API that checks the OAuth signature, the documented headers,
-and the element order of every request body against the live XSD in `immobilienscout24/testdata/`. They need a
-`terraform` or `tofu` binary but no credentials.
+and the element order of every request body against the live XSD in `immobilienscout24/testdata/`, and that fails
+publish requests which overlap. They need a `terraform` or `tofu` binary but no credentials.
 
-The live sandbox test runs only when asked for explicitly:
+The live sandbox test runs only when asked for explicitly. It creates an apartment, publishes it on channel `10000`
+of the sandbox, updates it and destroys both:
 
 ```sh
 TF_ACC=1 IMMOBILIENSCOUT24_LIVE=1 \

@@ -17,10 +17,7 @@ import (
 	"testing"
 )
 
-const (
-	xsdNamespace    = "http://www.w3.org/2001/XMLSchema"
-	commonNamespace = "http://rest.immobilienscout24.de/schema/common/1.0"
-)
+const xsdNamespace = "http://www.w3.org/2001/XMLSchema"
 
 type xsdNode struct {
 	XMLName  xml.Name
