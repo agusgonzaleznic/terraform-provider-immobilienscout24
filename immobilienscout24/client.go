@@ -1,18 +1,287 @@
 package immobilienscout24
 
 import (
+	"bytes"
+	"context"
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+	"time"
 
 	"github.com/dghubble/oauth1"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
+// Base URLs from https://api.immobilienscout24.de/api-docs/basic-principles/
+// and https://api.immobilienscout24.de/api-docs/sandbox/.
+const (
+	sandboxBaseURL    = "https://rest.sandbox-immobilienscout24.de/restapi/api"
+	productionBaseURL = "https://rest.immobilienscout24.de/restapi/api"
+
+	// realEstatePath is the collection resource for the authenticated user.
+	// "me" is the documented stand-in for the username under 3-legged OAuth.
+	realEstatePath = "/offer/v1.0/user/me/realestate/"
+
+	mediaTypeXML = "application/xml"
+
+	// maxResponseBytes caps how much of a response body is read at all.
+	maxResponseBytes = 1 << 20
+	// maxErrorBodyBytes caps how much of an unparseable body goes into an error.
+	maxErrorBodyBytes = 1024
+)
+
+// Message codes from messages-1.0.xsd and the Responses page.
+const (
+	codeResourceCreated        = "MESSAGE_RESOURCE_CREATED"
+	codeResourceNotFound       = "ERROR_RESOURCE_NOT_FOUND"
+	codeCommonResourceNotFound = "ERROR_COMMON_RESOURCE_NOT_FOUND"
+)
+
+// ErrNotFound matches, via errors.Is, an APIError that the API documented as
+// "resource not found". A bare 404 without such a message code does not match,
+// because the API also answers 404 for an unsupported Accept header.
+var ErrNotFound = errors.New("real estate not found")
+
+// Client talks to the ImmobilienScout24 Import/Export API.
 type Client struct {
 	httpClient *http.Client
+	baseURL    string
+	userAgent  string
 }
 
-func NewClient(consumerKey, consumerSecret, accessToken, accessTokenSecret string) *Client {
+// NewClient returns a client that signs every request with OAuth 1.0a
+// (HMAC-SHA1). baseURL is the API root, e.g. sandboxBaseURL.
+func NewClient(baseURL, consumerKey, consumerSecret, accessToken, accessTokenSecret, userAgent string) *Client {
 	config := oauth1.NewConfig(consumerKey, consumerSecret)
 	token := oauth1.NewToken(accessToken, accessTokenSecret)
-	httpClient := config.Client(oauth1.NoContext, token)
-	return &Client{httpClient: httpClient}
+	return &Client{
+		httpClient: newHTTPClient(config, token),
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		userAgent:  userAgent,
+	}
+}
+
+// requestTimeout bounds every API call, so a hung connection cannot stall a
+// Terraform run indefinitely.
+const requestTimeout = 60 * time.Second
+
+// newHTTPClient signs requests and never follows redirects: the documented API
+// does not redirect, and following one would send a freshly signed request to
+// whatever host the redirect names.
+func newHTTPClient(config *oauth1.Config, token *oauth1.Token) *http.Client {
+	c := config.Client(context.Background(), token)
+	c.Timeout = requestTimeout
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return c
+}
+
+// Message is one entry of a <common:messages> response.
+type Message struct {
+	Code string `xml:"messageCode"`
+	Text string `xml:"message"`
+	ID   string `xml:"id"`
+}
+
+type messagesDocument struct {
+	XMLName  xml.Name  `xml:"messages"`
+	Messages []Message `xml:"message"`
+}
+
+// APIError is a non-2xx response. It never carries request headers, so it
+// cannot leak the OAuth Authorization header.
+type APIError struct {
+	Method     string
+	Path       string
+	StatusCode int
+	Messages   []Message
+	// Body holds the start of the response body when it was not a
+	// <common:messages> document, truncated to maxErrorBodyBytes.
+	Body string
+}
+
+func (e *APIError) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s: HTTP %d %s", e.Method, e.Path, e.StatusCode, http.StatusText(e.StatusCode))
+	for _, m := range e.Messages {
+		fmt.Fprintf(&b, "\n%s: %s", m.Code, strings.TrimSpace(m.Text))
+	}
+	if len(e.Messages) == 0 && e.Body != "" {
+		fmt.Fprintf(&b, "\n%s", e.Body)
+	}
+	return b.String()
+}
+
+// Codes returns the message codes of the error response.
+func (e *APIError) Codes() []string {
+	codes := make([]string, 0, len(e.Messages))
+	for _, m := range e.Messages {
+		codes = append(codes, m.Code)
+	}
+	return codes
+}
+
+// Is reports whether the error is a documented not-found response.
+func (e *APIError) Is(target error) bool {
+	if target != ErrNotFound || e.StatusCode != http.StatusNotFound {
+		return false
+	}
+	for _, m := range e.Messages {
+		if m.Code == codeResourceNotFound || m.Code == codeCommonResourceNotFound {
+			return true
+		}
+	}
+	return false
+}
+
+// CreateApartmentRent inserts a real estate and returns its scout id.
+func (c *Client) CreateApartmentRent(ctx context.Context, doc *apartmentRentDocument) (string, error) {
+	body, err := marshalApartmentRent(doc)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.do(ctx, http.MethodPost, realEstatePath, body)
+	if err != nil {
+		return "", err
+	}
+	return createdID(resp)
+}
+
+// GetApartmentRent retrieves a real estate by scout id.
+func (c *Client) GetApartmentRent(ctx context.Context, id string) (*apartmentRentDocument, error) {
+	resp, err := c.do(ctx, http.MethodGet, realEstatePath+url.PathEscape(id), nil)
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalApartmentRent(resp.body)
+}
+
+// UpdateApartmentRent replaces a real estate. The API treats PUT as a full
+// replacement, so doc must hold every attribute, not only the changed ones.
+func (c *Client) UpdateApartmentRent(ctx context.Context, id string, doc *apartmentRentDocument) error {
+	body, err := marshalApartmentRent(doc)
+	if err != nil {
+		return err
+	}
+	_, err = c.do(ctx, http.MethodPut, realEstatePath+url.PathEscape(id), body)
+	return err
+}
+
+// DeleteRealEstate deletes a real estate of any type by scout id.
+func (c *Client) DeleteRealEstate(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, realEstatePath+url.PathEscape(id), nil)
+	return err
+}
+
+type response struct {
+	status   int
+	location string
+	body     []byte
+}
+
+func (c *Client) do(ctx context.Context, method, path string, body []byte) (*response, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+	if err != nil {
+		return nil, fmt.Errorf("building %s %s: %w", method, path, err)
+	}
+	// Basic Principles: reads send Accept, writes send Accept and Content-Type.
+	req.Header.Set("Accept", mediaTypeXML)
+	if body != nil {
+		req.Header.Set("Content-Type", mediaTypeXML)
+	}
+	if c.userAgent != "" {
+		req.Header.Set("User-Agent", c.userAgent)
+	}
+
+	tflog.Debug(ctx, "ImmobilienScout24 API request", map[string]any{"method": method, "path": path})
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			// url.Error repeats the full URL; keep only the cause.
+			err = urlErr.Err
+		}
+		return nil, fmt.Errorf("%s %s: %w", method, path, err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, maxResponseBytes))
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: reading response: %w", method, path, err)
+	}
+	tflog.Debug(ctx, "ImmobilienScout24 API response", map[string]any{"method": method, "path": path, "status": httpResp.StatusCode})
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode > 299 {
+		return nil, newAPIError(method, path, httpResp.StatusCode, respBody)
+	}
+	return &response{status: httpResp.StatusCode, location: httpResp.Header.Get("Location"), body: respBody}, nil
+}
+
+func newAPIError(method, path string, status int, body []byte) *APIError {
+	apiErr := &APIError{Method: method, Path: path, StatusCode: status}
+	if msgs, err := parseMessages(body); err == nil && len(msgs) > 0 {
+		apiErr.Messages = msgs
+		return apiErr
+	}
+	// Some errors (429, gateway errors) come back as plain text.
+	text := strings.TrimSpace(string(body))
+	if len(text) > maxErrorBodyBytes {
+		text = strings.ToValidUTF8(text[:maxErrorBodyBytes], "") + "... (truncated)"
+	}
+	apiErr.Body = text
+	return apiErr
+}
+
+func parseMessages(body []byte) ([]Message, error) {
+	var doc messagesDocument
+	if err := xml.Unmarshal(body, &doc); err != nil {
+		return nil, err
+	}
+	return doc.Messages, nil
+}
+
+var (
+	createdIDText = regexp.MustCompile(`with id \[(\d+)\]`)
+	scoutID       = regexp.MustCompile(`^\d+$`)
+)
+
+// createdID extracts the new scout id from a create response. The documented
+// body carries it in <message><id>; the Responses page also promises a
+// Location header, and the message text repeats the id, so both are fallbacks.
+func createdID(resp *response) (string, error) {
+	msgs, parseErr := parseMessages(resp.body)
+	for _, m := range msgs {
+		if m.Code == codeResourceCreated && scoutID.MatchString(strings.TrimSpace(m.ID)) {
+			return strings.TrimSpace(m.ID), nil
+		}
+	}
+	if resp.location != "" {
+		if u, err := url.Parse(resp.location); err == nil {
+			segment := u.Path[strings.LastIndex(u.Path, "/")+1:]
+			if scoutID.MatchString(segment) {
+				return segment, nil
+			}
+		}
+	}
+	for _, m := range msgs {
+		if m.Code == codeResourceCreated {
+			if match := createdIDText.FindStringSubmatch(m.Text); match != nil {
+				return match[1], nil
+			}
+		}
+	}
+	detail := "no id in the response body or Location header"
+	if parseErr != nil {
+		detail = "response is not a <common:messages> document: " + parseErr.Error()
+	}
+	return "", fmt.Errorf("the API accepted the real estate (HTTP %d) but the provider could not determine its id (%s). "+
+		"The object probably exists in the account now and has to be removed or imported by hand", resp.status, detail)
 }

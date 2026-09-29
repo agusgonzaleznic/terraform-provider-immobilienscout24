@@ -1,6 +1,11 @@
+# The credentials are best supplied through environment variables, so that they
+# never appear in configuration or state:
+#
+#   export IMMOBILIENSCOUT24_CONSUMER_KEY=...
+#   export IMMOBILIENSCOUT24_CONSUMER_SECRET=...
+#   export IMMOBILIENSCOUT24_ACCESS_TOKEN=...
+#   export IMMOBILIENSCOUT24_ACCESS_TOKEN_SECRET=...
 provider "immobilienscout24" {
-  consumer_key        = var.consumer_key
-  consumer_secret     = var.consumer_secret
-  access_token        = var.access_token
-  access_token_secret = var.access_token_secret
+  # "sandbox" (the default) or "production". API keys are issued per environment.
+  environment = "sandbox"
 }
