@@ -10,7 +10,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-type immobilienscout24Provider struct{}
+type immobilienscout24Provider struct {
+	version string
+}
 
 type immobilienscout24ProviderModel struct {
 	ConsumerKey       types.String `tfsdk:"consumer_key"`
@@ -19,12 +21,16 @@ type immobilienscout24ProviderModel struct {
 	AccessTokenSecret types.String `tfsdk:"access_token_secret"`
 }
 
-func New() provider.Provider {
-	return &immobilienscout24Provider{}
+// New returns a constructor for the provider, as providerserver.Serve expects.
+func New(version string) func() provider.Provider {
+	return func() provider.Provider {
+		return &immobilienscout24Provider{version: version}
+	}
 }
 
 func (p *immobilienscout24Provider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "immobilienscout24"
+	resp.Version = p.version
 }
 
 func (p *immobilienscout24Provider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
