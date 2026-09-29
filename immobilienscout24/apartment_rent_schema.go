@@ -90,8 +90,9 @@ func apartmentRentSchema() schema.Schema {
 		MarkdownDescription: "An apartment for rent (`realestates:apartmentRent`) in the ImmobilienScout24 account " +
 			"of the access token. New objects are created unpublished; publish them with `immobilienscout24_publication`.\n\n" +
 			"The API treats every update as a full replacement (\"You have to send all attributes, also if only one " +
-			"attribute has changed\"). Fields this resource does not model, such as an energy certificate or a contact " +
-			"set on the website, can therefore be reset when Terraform updates the object.",
+			"attribute has changed\"). Fields this resource does not model, such as an energy certificate, can " +
+			"therefore be reset when Terraform updates the object. The contact is not: every update sends the " +
+			"listing's contact, see `contact_id`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "The scout object id that ImmobilienScout24 assigned on creation.",
@@ -158,6 +159,19 @@ func apartmentRentSchema() schema.Schema {
 			"show_address": schema.BoolAttribute{
 				MarkdownDescription: "Whether the listing shows the full address (`showAddress`).",
 				Required:            true,
+			},
+			"contact_id": schema.StringAttribute{
+				MarkdownDescription: "The id of the contact the listing shows (`contact`), for example " +
+					"`immobilienscout24_contact.example.id`. Changing it updates the listing in place. When omitted, a new " +
+					"listing gets the account's default contact, and later the listing keeps whatever contact it has, " +
+					"also one chosen on the website: the API resets a listing to the default contact when an update " +
+					"leaves the contact out, so every update first reads the listing's current contact and sends it. " +
+					"Deleting a contact moves its listings to the default contact.",
+				Optional: true,
+				Computed: true,
+				Validators: []validator.String{
+					stringvalidator.RegexMatches(positiveID, "must be a whole number in digits, without a leading zero"),
+				},
 			},
 			"description_note": textNote("Object description (`descriptionNote`)."),
 			"furnishing_note":  textNote("Description of the furnishing (`furnishingNote`)."),

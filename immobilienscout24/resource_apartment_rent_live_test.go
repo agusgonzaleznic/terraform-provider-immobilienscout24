@@ -3,16 +3,20 @@ package immobilienscout24
 // Live acceptance test against the real ImmobilienScout24 sandbox. It runs
 // only with TF_ACC=1, IMMOBILIENSCOUT24_LIVE=1 and all four
 // IMMOBILIENSCOUT24_* credential variables set to sandbox credentials, and
-// skips otherwise. It makes five write calls (create, publish on channel
-// 10000, update, unpublish, delete), far below the sandbox limit of 200 per
-// minute, and uses the test data the guidelines ask for ("anonymized" texts
-// and the ImmobilienScout24 office address).
+// skips otherwise. It makes seven write calls (create the contact, create the
+// listing, publish it on channel 10000, update it, unpublish it, delete it,
+// delete the contact), far below the sandbox limit of 200 per minute, and uses
+// the test data the guidelines ask for ("anonymized" texts, an @is24-test.de
+// address and the ImmobilienScout24 office address and phone number). It
+// never sets default_contact, which would move the default contact of the
+// sandbox account.
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
@@ -34,6 +38,20 @@ func testAccLivePreCheck(t *testing.T) {
 }
 
 func testAccLiveConfig(externalID, title string, published bool) string {
+	contact := fmt.Sprintf(`
+resource "immobilienscout24_contact" "test" {
+  email        = "%s@is24-test.de"
+  lastname     = "anonymized"
+  phone_number = "+49 30 24301999"
+
+  address = {
+    street       = "Invalidenstrasse"
+    house_number = "65"
+    postcode     = "10557"
+    city         = "Berlin"
+  }
+}
+`, externalID)
 	publication := ""
 	if published {
 		publication = `
@@ -53,6 +71,7 @@ resource "immobilienscout24_apartment_rent" "test" {
   title            = %q
   show_address     = false
   description_note = "anonymized"
+  contact_id       = immobilienscout24_contact.test.id
 
   address = {
     street       = "Invalidenstrasse"
@@ -69,7 +88,7 @@ resource "immobilienscout24_apartment_rent" "test" {
     has_courtage = "NO"
   }
 }
-`, externalID, title) + publication
+`, externalID, title) + contact + publication
 }
 
 func TestAccApartmentRent_liveSandbox(t *testing.T) {
@@ -88,6 +107,9 @@ func TestAccApartmentRent_liveSandbox(t *testing.T) {
 					captureResourceID(testPortalName, &portalID),
 					resource.TestCheckResourceAttrSet(testResourceName, "id"),
 					resource.TestCheckResourceAttr(testResourceName, "external_id", externalID),
+					resource.TestCheckResourceAttrPair(testResourceName, "contact_id", testContactName, "id"),
+					testAccLiveCheckListingContact(&apartmentID),
+					resource.TestCheckResourceAttr(testContactName, "default_contact", "false"),
 					resource.TestCheckResourceAttrPair(testPortalName, "real_estate_id", testResourceName, "id"),
 					resource.TestCheckResourceAttr(testPortalName, "channel_id", "10000"),
 				),
@@ -102,10 +124,18 @@ func TestAccApartmentRent_liveSandbox(t *testing.T) {
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction(testResourceName, plancheck.ResourceActionUpdate),
 						plancheck.ExpectResourceAction(testPortalName, plancheck.ResourceActionNoop),
+						plancheck.ExpectResourceAction(testContactName, plancheck.ResourceActionNoop),
 					},
 					PostApplyPostRefresh: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
 				},
-				Check: resource.TestCheckResourceAttr(testResourceName, "title", "anonymized, updated"),
+				// The update sends the contact, so the listing keeps it; the
+				// sandbox resets a listing to the default contact on a PUT
+				// without one.
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(testResourceName, "title", "anonymized, updated"),
+					resource.TestCheckResourceAttrPair(testResourceName, "contact_id", testContactName, "id"),
+					testAccLiveCheckListingContact(&apartmentID),
+				),
 			},
 			{
 				ResourceName:      testResourceName,
@@ -114,6 +144,11 @@ func TestAccApartmentRent_liveSandbox(t *testing.T) {
 			},
 			{
 				ResourceName:      testPortalName,
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				ResourceName:      testContactName,
 				ImportState:       true,
 				ImportStateVerify: true,
 			},
@@ -132,6 +167,25 @@ func TestAccApartmentRent_liveSandbox(t *testing.T) {
 			},
 		},
 	})
+}
+
+// testAccLiveCheckListingContact asks the sandbox itself which contact the
+// listing has, and compares it with the contact resource in the state.
+func testAccLiveCheckListingContact(apartmentID *string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[testContactName]
+		if !ok {
+			return fmt.Errorf("%s not in state", testContactName)
+		}
+		doc, err := testAccLiveClient().GetApartmentRent(context.Background(), *apartmentID)
+		if err != nil {
+			return fmt.Errorf("reading listing %s: %w", *apartmentID, err)
+		}
+		if doc.Contact == nil || strings.TrimSpace(doc.Contact.ID) != rs.Primary.ID {
+			return fmt.Errorf("listing %s has contact %+v on the sandbox, want %s", *apartmentID, doc.Contact, rs.Primary.ID)
+		}
+		return nil
+	}
 }
 
 // captureResourceID stores the id of a resource in the current state in *id.
@@ -182,6 +236,8 @@ func testAccLiveCheckDestroyed(s *terraform.State) error {
 			_, err = client.GetApartmentRent(context.Background(), rs.Primary.ID)
 		case "immobilienscout24_publication":
 			_, err = client.GetPublication(context.Background(), rs.Primary.ID)
+		case "immobilienscout24_contact":
+			_, err = client.GetContact(context.Background(), rs.Primary.ID)
 		default:
 			continue
 		}

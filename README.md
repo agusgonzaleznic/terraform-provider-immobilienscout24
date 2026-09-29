@@ -4,16 +4,18 @@ An unofficial Terraform and OpenTofu provider for [ImmobilienScout24](https://ww
 [ImmobilienScout24 Import/Export API](https://api.immobilienscout24.de/api-docs/import-export/introduction/) and the
 Terraform Plugin Framework.
 
-> **Status:** early. It manages apartment rentals and their publication. It follows the API documentation, the
-> live XSD and publish calls observed on the ImmobilienScout24 sandbox, and its live acceptance test, which
-> creates, publishes, updates, imports and destroys a listing, passes against the sandbox. It has not been
-> used against the production API.
+> **Status:** early. It manages apartment rentals, their publication and their contact addresses. It follows the
+> API documentation, the live XSD, and publish and contact calls observed on the ImmobilienScout24 sandbox. Its
+> live acceptance test, which creates, publishes, updates, imports and destroys a listing, passes against the
+> sandbox; the contact steps added to it since have not been run there yet. It has not been used against the
+> production API.
 
 ## Resources
 
 | Resource | Manages |
 |----------|---------|
 | [`immobilienscout24_apartment_rent`](docs/resources/apartment_rent.md) | An apartment for rent: create, read, update, delete, import |
+| [`immobilienscout24_contact`](docs/resources/contact.md) | A contact address that listings show: create, read, update, delete, import |
 | [`immobilienscout24_publication`](docs/resources/publication.md) | The publication of a listing on one publish channel: create, read, delete, import |
 
 ## Requirements
@@ -147,6 +149,51 @@ resource "immobilienscout24_publication" "homepage" {
 - The API documentation asks for publish requests one after the other, so the provider sends them one at a time,
   even when Terraform creates several publications in parallel.
 
+## Contacts
+
+A listing shows one contact address. An `immobilienscout24_contact` manages one, and `contact_id` points a listing
+at it:
+
+```hcl
+resource "immobilienscout24_contact" "leasing" {
+  email        = "vermietung@example.com"
+  lastname     = "Beispiel"
+  phone_number = "+49 30 24301999"
+}
+
+resource "immobilienscout24_apartment_rent" "example" {
+  # ...
+  contact_id = immobilienscout24_contact.leasing.id
+}
+```
+
+- Phone numbers are written in one piece: country code, area code and subscriber number, separated by spaces,
+  such as `+49 30 24301999`. The country code starts with `+`, not `00`, and after `+49` the area code has no
+  leading `0`.
+- Every account has exactly one **default contact**, which a listing without a contact gets. Setting
+  `default_contact = true` makes a contact the default, and the previous default loses the flag. Setting
+  `default_contact = false` is rejected, because ImmobilienScout24 ignores it: the default only moves when another
+  contact becomes the default. Leave the attribute out to keep the current flag. Set `default_contact = true` on one
+  contact only: when two contacts both set it, the apply fails with "Another contact became the default contact".
+- ImmobilienScout24 refuses to delete the default contact. To destroy it, first make another contact the default,
+  with `default_contact = true` on another `immobilienscout24_contact` or on the website. Moving the default to a
+  new contact and removing the old one in the same apply works: the provider waits up to 15 seconds for the new
+  contact to take the default before it gives up deleting the old one.
+- Destroying a contact moves the listings that use it to the default contact.
+- An update replaces the whole contact, so the fields the resource does not model (`company`, `officeHours`,
+  `portraitUrl`, `clickOutUrl`, `localPartnerContact`, `businessCardContact`) are reset.
+- An existing contact can be imported by its id:
+
+  ```sh
+  terraform import immobilienscout24_contact.leasing 124309506
+  ```
+
+**Fixed: updates no longer reset a listing's contact.** Up to v0.1.0, every update of an
+`immobilienscout24_apartment_rent` reset the listing to the account's default contact. ImmobilienScout24 does that
+when an update leaves the contact out, and the provider never sent one, so a contact chosen on the website was lost
+on the next `terraform apply` that changed the listing. The resource now sends the listing's contact on every
+update: the configured `contact_id`, or, without one, the contact the listing already has.
+
 ## Limitations
 
 - **Tested on the sandbox, not on production.** Production API access is paid, so the provider has only been
@@ -156,8 +203,8 @@ resource "immobilienscout24_publication" "homepage" {
 - **Apartment rentals only.** Other real estate types (houses, apartments for sale, commercial) are not supported.
   Importing an object of another type fails with an error rather than misreading it.
 - **Partial field coverage.** The resource models the mandatory fields and the common optional ones. Updates are
-  full replacements on the API side, so fields it does not model (energy certificate, contact, attachments metadata,
-  and so on) may be reset when Terraform updates a listing that was edited elsewhere.
+  full replacements on the API side, so fields it does not model (energy certificate, attachments metadata, and so
+  on) may be reset when Terraform updates a listing that was edited elsewhere. The listing's contact is kept.
 - **Delete is a hard delete.** ImmobilienScout24 recommends deactivating listings instead of deleting them;
   `terraform destroy` deletes.
 - No automatic retry on rate limiting (HTTP 429). The sandbox allows at most 200 write calls per minute.
@@ -174,11 +221,14 @@ make generate  # regenerate docs/ from the schema and examples/
 ```
 
 The acceptance tests start an in-process fake of the API that checks the OAuth signature, the documented headers,
-and the element order of every request body against the live XSD in `immobilienscout24/testdata/`, and that fails
-publish requests which overlap. They need a `terraform` or `tofu` binary but no credentials.
+and the element order of every request body against the live XSD in `immobilienscout24/testdata/` (for contacts,
+against the order of the documented examples, which that XSD predates), and that fails publish requests which
+overlap. It mirrors the contact behaviour observed on the sandbox, including the default contact rules. The tests
+need a `terraform` or `tofu` binary but no credentials.
 
-The live sandbox test runs only when asked for explicitly. It creates an apartment, publishes it on channel `10000`
-of the sandbox, updates it and destroys both:
+The live sandbox test runs only when asked for explicitly. It creates a contact and an apartment that shows it,
+publishes the apartment on channel `10000` of the sandbox, updates it and destroys all three. It never changes the
+account's default contact:
 
 ```sh
 TF_ACC=1 IMMOBILIENSCOUT24_LIVE=1 \

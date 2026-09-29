@@ -27,6 +27,7 @@ type apartmentRentFields struct {
 	LocationNote                string           `xml:"locationNote,omitempty"`                // 11
 	OtherNote                   string           `xml:"otherNote,omitempty"`                   // 12
 	ShowAddress                 *bool            `xml:"showAddress"`                           // 17 RealEstate
+	Contact                     *idElement       `xml:"contact"`                               // 18
 	ApartmentType               string           `xml:"apartmentType,omitempty"`               // 20 ApartmentRent
 	Floor                       *string          `xml:"floor"`                                 // 21
 	Lift                        *bool            `xml:"lift"`                                  // 22

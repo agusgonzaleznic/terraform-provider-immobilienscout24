@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -95,6 +96,9 @@ func (r *apartmentRentResource) Create(ctx context.Context, req resource.CreateR
 	if plan.ExternalID.IsUnknown() {
 		plan.ExternalID = types.StringNull()
 	}
+	if plan.ContactID.IsUnknown() {
+		plan.ContactID = types.StringNull()
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -133,6 +137,22 @@ func (r *apartmentRentResource) Update(ctx context.Context, req resource.UpdateR
 	plan.ID = state.ID
 
 	// PUT is a full replacement, so send the whole document from the plan.
+	// A PUT without a contact would reset the listing to the default contact,
+	// so when the configuration leaves contact_id out, send the contact the
+	// listing has right now. The state can be out of date: in the same apply
+	// Terraform may already have deleted that contact, which moves the listing
+	// to the default contact, and a PUT naming it fails with 412.
+	if plan.ContactID.IsUnknown() || plan.ContactID.IsNull() {
+		current, err := r.client.GetApartmentRent(ctx, id)
+		if err != nil {
+			resp.Diagnostics.AddError("Error reading the listing's contact before updating it", err.Error())
+			return
+		}
+		plan.ContactID = types.StringNull()
+		if current.Contact != nil {
+			plan.ContactID = optionalString(strings.TrimSpace(current.Contact.ID))
+		}
+	}
 	if err := r.client.UpdateApartmentRent(ctx, id, plan.toDocument()); err != nil {
 		resp.Diagnostics.AddError("Error updating apartment rent", err.Error())
 		return

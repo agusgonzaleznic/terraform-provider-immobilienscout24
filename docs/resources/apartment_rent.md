@@ -4,14 +4,14 @@ page_title: "immobilienscout24_apartment_rent Resource - immobilienscout24"
 subcategory: ""
 description: |-
   An apartment for rent (realestates:apartmentRent) in the ImmobilienScout24 account of the access token. New objects are created unpublished; publish them with immobilienscout24_publication.
-  The API treats every update as a full replacement ("You have to send all attributes, also if only one attribute has changed"). Fields this resource does not model, such as an energy certificate or a contact set on the website, can therefore be reset when Terraform updates the object.
+  The API treats every update as a full replacement ("You have to send all attributes, also if only one attribute has changed"). Fields this resource does not model, such as an energy certificate, can therefore be reset when Terraform updates the object. The contact is not: every update sends the listing's contact, see contact_id.
 ---
 
 # immobilienscout24_apartment_rent (Resource)
 
 An apartment for rent (`realestates:apartmentRent`) in the ImmobilienScout24 account of the access token. New objects are created unpublished; publish them with `immobilienscout24_publication`.
 
-The API treats every update as a full replacement ("You have to send all attributes, also if only one attribute has changed"). Fields this resource does not model, such as an energy certificate or a contact set on the website, can therefore be reset when Terraform updates the object.
+The API treats every update as a full replacement ("You have to send all attributes, also if only one attribute has changed"). Fields this resource does not model, such as an energy certificate, can therefore be reset when Terraform updates the object. The contact is not: every update sends the listing's contact, see `contact_id`.
 
 ## Example Usage
 
@@ -20,6 +20,7 @@ resource "immobilienscout24_apartment_rent" "example" {
   external_id  = "berlin-mitte-3og-links"
   title        = "Bright two-room apartment near Nordbahnhof"
   show_address = true
+  contact_id   = immobilienscout24_contact.example.id
 
   address = {
     street       = "Invalidenstrasse"
@@ -74,6 +75,7 @@ resource "immobilienscout24_apartment_rent" "example" {
 - `balcony` (Boolean) Whether there is a balcony (`balcony`). Defaults to `false`, as the API does.
 - `built_in_kitchen` (Boolean) Whether there is a built-in kitchen (`builtInKitchen`). Defaults to `false`, as the API does.
 - `cellar` (String) Cellar (`cellar`). One of `YES`, `NOT_APPLICABLE`. Defaults to `NOT_APPLICABLE`, as the API does.
+- `contact_id` (String) The id of the contact the listing shows (`contact`), for example `immobilienscout24_contact.example.id`. Changing it updates the listing in place. When omitted, a new listing gets the account's default contact, and later the listing keeps whatever contact it has, also one chosen on the website: the API resets a listing to the default contact when an update leaves the contact out, so every update first reads the listing's current contact and sends it. Deleting a contact moves its listings to the default contact.
 - `deposit` (String) Deposit, as free text (`deposit`), at most 50 characters.
 - `description_note` (String) Object description (`descriptionNote`). At most 3999 bytes. The API supports no HTML except `<br>`.
 - `external_id` (String) Your own id for the object (`externalId`), unique within the account, at most 50 characters. When omitted, ImmobilienScout24 sets it to the scout object id. Removing it from the configuration later keeps the current value.

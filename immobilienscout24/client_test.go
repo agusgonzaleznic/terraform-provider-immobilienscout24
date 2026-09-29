@@ -210,7 +210,8 @@ func fullModel() *apartmentRentModel {
 		ExternalID: s("tf-ext-1"), Title: s("anonymized"),
 		Address: &addressModel{Street: s("Invalidenstrasse"), HouseNumber: s("65"), Postcode: s("10557"), City: s("Berlin"),
 			Coordinates: &coordinatesModel{Latitude: f(52.53), Longitude: f(13.38)}},
-		ShowAddress: b(true), DescriptionNote: s("d"), FurnishingNote: s("f"), LocationNote: s("l"), OtherNote: s("o"),
+		ShowAddress: b(true), ContactID: s(fakeDefaultContactID),
+		DescriptionNote: s("d"), FurnishingNote: s("f"), LocationNote: s("l"), OtherNote: s("o"),
 		ApartmentType: s("APARTMENT"), Floor: types.Int64Value(2), Lift: b(true), Cellar: s("YES"), FreeFrom: s("sofort"),
 		NumberOfFloors: types.Int64Value(5), BaseRent: f(900.5), TotalRent: f(1200), ServiceCharge: f(200), Deposit: s("3 Kaltmieten"),
 		HeatingCosts: f(99.5), HeatingCostsInServiceCharge: s("NO"), PetsAllowed: s("NEGOTIABLE"), LivingSpace: f(65.5),
@@ -264,8 +265,8 @@ func TestMarshalledOrderFollowsXSD(t *testing.T) {
 		t.Fatalf("%v\nsent: %v", err, names)
 	}
 	// Every modelled field must actually be on the wire.
-	if len(names) != 27 {
-		t.Fatalf("full model produced %d elements, want 27: %v", len(names), names)
+	if len(names) != 28 {
+		t.Fatalf("full model produced %d elements, want 28: %v", len(names), names)
 	}
 	// And the fake, which the acceptance tests rely on, must agree.
 	if _, err := newFakeAPI(t).validate(body); err != nil {
