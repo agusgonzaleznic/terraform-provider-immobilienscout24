@@ -8,6 +8,10 @@
 *.so
 *.dylib
 
+# The provider binary built by `go build` at the repo root, and GoReleaser output
+/terraform-provider-immobilienscout24
+dist/
+
 # Test binary, built with `go test -c`
 *.test
 
