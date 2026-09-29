@@ -14,8 +14,9 @@ package immobilienscout24
 //     against the live XSD fixture (see xsd_test.go), not a hand-written list.
 //
 // Behaviour the documentation does not pin down is simulated and marked
-// "simulated" below. The publish resource is in fake_api_publish_test.go and
-// the OAuth check in fake_oauth_test.go.
+// "simulated" below. The publish resource is in fake_api_publish_test.go, the
+// contact resource and the contact of a real estate in
+// fake_api_contact_test.go, and the OAuth check in fake_oauth_test.go.
 
 import (
 	"encoding/xml"
@@ -82,6 +83,8 @@ type fakeAPI struct {
 	lowercaseAddress bool
 	// pub holds the publications, see fake_api_publish_test.go.
 	pub fakePublishState
+	// contacts holds the contacts, see fake_api_contact_test.go.
+	contacts fakeContactState
 }
 
 func newFakeAPI(t testing.TB) *fakeAPI {
@@ -92,6 +95,7 @@ func newFakeAPI(t testing.TB) *fakeAPI {
 		objects:          map[string]*xnode{},
 		deletedOutOfBand: map[string]bool{},
 		pub:              fakePublishState{publications: map[string]fakePublication{}},
+		contacts:         newFakeContactState(t),
 		topOrder:         mustElements(t, realEstatesNamespace, "ApartmentRent"),
 		addressOrder:     mustElements(t, commonNamespace, "Wgs84Address"),
 	}
@@ -150,6 +154,7 @@ func (f *fakeAPI) DeleteOutOfBand(id string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	delete(f.objects, id)
+	delete(f.contacts.listings, id)
 	f.deletedOutOfBand[id] = true
 	f.pub.removedOutOfBand = append(f.pub.removedOutOfBand, f.removePublications(id)...)
 }
@@ -194,6 +199,8 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 		f.item(w, r.Method, id, body)
 	case r.URL.Path == fakePublishPath || strings.HasPrefix(r.URL.Path, fakePublishPath+"/"):
 		f.handlePublish(w, r.Method, r.URL.Path, body)
+	case r.URL.Path == fakeContactPath || strings.HasPrefix(r.URL.Path, fakeContactPath+"/"):
+		f.handleContact(w, r.Method, r.URL.Path, body)
 	default:
 		writeMessages(w, http.StatusMethodNotAllowed, "ERROR_COMMON_METHOD_NOT_ALLOWED", "Method not allowed.")
 	}
@@ -202,7 +209,7 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 func (f *fakeAPI) create(w http.ResponseWriter, body []byte) {
 	obj, err := f.validate(body)
 	if err != nil {
-		writeMessages(w, http.StatusPreconditionFailed, "ERROR_COMMON_SCHEMA_VALIDATION_FAILED", err.Error())
+		writeValidationError(w, err)
 		return
 	}
 	f.mu.Lock()
@@ -240,7 +247,7 @@ func (f *fakeAPI) item(w http.ResponseWriter, method, id string, body []byte) {
 	case http.MethodPut:
 		updated, err := f.validate(body)
 		if err != nil {
-			writeMessages(w, http.StatusPreconditionFailed, "ERROR_COMMON_SCHEMA_VALIDATION_FAILED", err.Error())
+			writeValidationError(w, err)
 			return
 		}
 		f.mu.Lock()
@@ -258,6 +265,7 @@ func (f *fakeAPI) item(w http.ResponseWriter, method, id string, body []byte) {
 	case http.MethodDelete:
 		f.mu.Lock()
 		delete(f.objects, id)
+		delete(f.contacts.listings, id)
 		f.removePublications(id)
 		f.mu.Unlock()
 		// Verbatim from the Delete a Real Estate page, with the fake's id.
@@ -277,6 +285,7 @@ func (f *fakeAPI) item(w http.ResponseWriter, method, id string, body []byte) {
 // store saves an object and applies the documented server-side defaults. The
 // caller holds f.mu.
 func (f *fakeAPI) store(id string, obj *xnode) {
+	f.assignListingContact(id, obj)
 	// Insert page: without externalId "we'll set the scout object id
 	// automatically as externalId".
 	if obj.child("externalId") == nil {
@@ -309,6 +318,33 @@ func (f *fakeAPI) store(id string, obj *xnode) {
 
 // validate parses a request body and checks it against the XSD fixture.
 func (f *fakeAPI) validate(body []byte) (*xnode, error) {
+	root, err := parseRequest(body, realEstatesNamespace, "apartmentRent")
+	if err != nil {
+		return nil, err
+	}
+	if err := checkOrder("apartmentRent", childNames(root), f.topOrder); err != nil {
+		return nil, err
+	}
+	if a := root.child("address"); a != nil {
+		if err := checkOrder("address", childNames(a), f.addressOrder); err != nil {
+			return nil, err
+		}
+	}
+	if c := root.child("courtage"); c != nil && c.child("hasCourtage") == nil {
+		return nil, fmt.Errorf("courtage: required element <hasCourtage> is missing")
+	}
+	if err := f.checkListingContact(root); err != nil {
+		return nil, err
+	}
+	for _, c := range root.Children {
+		c.Text = strings.TrimSpace(c.Text)
+	}
+	return root, nil
+}
+
+// parseRequest parses a request body whose root is {namespace}local and whose
+// other elements are unqualified, as the XSD declares them.
+func parseRequest(body []byte, namespace, local string) (*xnode, error) {
 	dec := xml.NewDecoder(strings.NewReader(string(body)))
 	var root *xnode
 	var stack []*xnode
@@ -323,8 +359,8 @@ func (f *fakeAPI) validate(body []byte) (*xnode, error) {
 		switch tok := tok.(type) {
 		case xml.StartElement:
 			if len(stack) == 0 {
-				if tok.Name.Space != realEstatesNamespace || tok.Name.Local != "apartmentRent" {
-					return nil, fmt.Errorf("root element is {%s}%s, want {%s}apartmentRent", tok.Name.Space, tok.Name.Local, realEstatesNamespace)
+				if tok.Name.Space != namespace || tok.Name.Local != local {
+					return nil, fmt.Errorf("root element is {%s}%s, want {%s}%s", tok.Name.Space, tok.Name.Local, namespace, local)
 				}
 			} else if tok.Name.Space != "" {
 				return nil, fmt.Errorf("element <%s> is in namespace %q, the XSD declares unqualified elements", tok.Name.Local, tok.Name.Space)
@@ -352,20 +388,6 @@ func (f *fakeAPI) validate(body []byte) (*xnode, error) {
 	}
 	if root == nil {
 		return nil, fmt.Errorf("empty body")
-	}
-	if err := checkOrder("apartmentRent", childNames(root), f.topOrder); err != nil {
-		return nil, err
-	}
-	if a := root.child("address"); a != nil {
-		if err := checkOrder("address", childNames(a), f.addressOrder); err != nil {
-			return nil, err
-		}
-	}
-	if c := root.child("courtage"); c != nil && c.child("hasCourtage") == nil {
-		return nil, fmt.Errorf("courtage: required element <hasCourtage> is missing")
-	}
-	for _, c := range root.Children {
-		c.Text = strings.TrimSpace(c.Text)
 	}
 	return root, nil
 }
@@ -422,6 +444,7 @@ func (f *fakeAPI) render(id string, obj *xnode) string {
 		case "address":
 			writeNode(&b, &xnode{Name: "realEstateState", Text: f.realEstateState(id)})
 		case "showAddress":
+			f.writeListingContact(&b, id)
 			f.writePublishChannels(&b, id)
 		}
 	}

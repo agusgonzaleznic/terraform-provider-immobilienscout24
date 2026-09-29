@@ -31,6 +31,8 @@ const (
 	// publishPath is the publish resource. A publication, one real estate on
 	// one publish channel, has the id "{realEstateID}_{channelID}".
 	publishPath = "/offer/v1.0/publish"
+	// contactPath is the contact resource of the authenticated user.
+	contactPath = "/offer/v1.0/user/me/contact"
 
 	mediaTypeXML = "application/xml"
 
@@ -46,6 +48,7 @@ const (
 	codeResourceNotFound       = "ERROR_RESOURCE_NOT_FOUND"
 	codeCommonResourceNotFound = "ERROR_COMMON_RESOURCE_NOT_FOUND"
 	codeRequestConflict        = "ERROR_COMMON_REQUEST_CONFLICT"
+	codeResourceValidation     = "ERROR_RESOURCE_VALIDATION"
 )
 
 // ErrNotFound matches, via errors.Is, an APIError that the API documented as
@@ -57,6 +60,16 @@ var ErrNotFound = errors.New("resource not found")
 // response. The sandbox answers that way when a listing is published on a
 // channel it is already published on (observed 2026-09-29).
 var ErrConflict = errors.New("request conflict")
+
+// ErrDefaultContact matches, via errors.Is, the 412 ERROR_RESOURCE_VALIDATION
+// with which the sandbox refuses to delete the account's default contact
+// (observed 2026-09-29).
+var ErrDefaultContact = errors.New("the default contact cannot be deleted")
+
+// defaultContactUndeletable matches the text of that refusal: "Error while
+// validating input for the resource. [MESSAGE: default contact can not be
+// deleted. Please provide assigntocontactid query parameter]".
+var defaultContactUndeletable = regexp.MustCompile(`(?i)default contact can ?not be deleted`)
 
 // Client talks to the ImmobilienScout24 Import/Export API.
 type Client struct {
@@ -139,13 +152,18 @@ func (e *APIError) Codes() []string {
 	return codes
 }
 
-// Is reports whether the error is a documented not-found or conflict response.
+// Is reports whether the error is a documented not-found or conflict response,
+// or the refusal to delete the default contact.
 func (e *APIError) Is(target error) bool {
 	switch target {
 	case ErrNotFound:
 		return e.StatusCode == http.StatusNotFound && e.hasCode(codeResourceNotFound, codeCommonResourceNotFound)
 	case ErrConflict:
 		return e.StatusCode == http.StatusConflict && e.hasCode(codeRequestConflict)
+	case ErrDefaultContact:
+		return e.StatusCode == http.StatusPreconditionFailed && slices.ContainsFunc(e.Messages, func(m Message) bool {
+			return m.Code == codeResourceValidation && defaultContactUndeletable.MatchString(m.Text)
+		})
 	}
 	return false
 }
@@ -245,6 +263,53 @@ func (c *Client) GetPublication(ctx context.Context, id string) (*Publication, e
 // ERROR_RESOURCE_NOT_FOUND (observed 2026-09-29), which matches ErrNotFound.
 func (c *Client) Unpublish(ctx context.Context, id string) error {
 	_, err := c.do(ctx, http.MethodDelete, publishPath+"/"+url.PathEscape(id), nil)
+	return err
+}
+
+// CreateContact creates a contact address and returns its id.
+func (c *Client) CreateContact(ctx context.Context, doc *contactDocument) (string, error) {
+	body, err := marshalContact(doc)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.do(ctx, http.MethodPost, contactPath, body)
+	if err != nil {
+		return "", err
+	}
+	id, detail := createdID(resp, scoutID)
+	if id == "" {
+		return "", fmt.Errorf("the API accepted the contact (HTTP %d) but the provider could not determine its id (%s). "+
+			"The contact probably exists in the account now and has to be removed or imported by hand", resp.status, detail)
+	}
+	return id, nil
+}
+
+// GetContact retrieves a contact address by id.
+func (c *Client) GetContact(ctx context.Context, id string) (*contactDocument, error) {
+	resp, err := c.do(ctx, http.MethodGet, contactPath+"/"+url.PathEscape(id), nil)
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalContact(id, resp.body)
+}
+
+// UpdateContact replaces a contact address. PUT is a full replacement
+// (observed 2026-09-29): an element that doc leaves out is cleared, except
+// defaultContact, which keeps its value when left out.
+func (c *Client) UpdateContact(ctx context.Context, id string, doc *contactDocument) error {
+	body, err := marshalContact(doc)
+	if err != nil {
+		return err
+	}
+	_, err = c.do(ctx, http.MethodPut, contactPath+"/"+url.PathEscape(id), body)
+	return err
+}
+
+// DeleteContact deletes a contact address. The API moves the listings that
+// use it to the default contact, and refuses to delete the default contact
+// itself with an error that matches ErrDefaultContact.
+func (c *Client) DeleteContact(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, contactPath+"/"+url.PathEscape(id), nil)
 	return err
 }
 

@@ -2,6 +2,7 @@ resource "immobilienscout24_apartment_rent" "example" {
   external_id  = "berlin-mitte-3og-links"
   title        = "Bright two-room apartment near Nordbahnhof"
   show_address = true
+  contact_id   = immobilienscout24_contact.example.id
 
   address = {
     street       = "Invalidenstrasse"

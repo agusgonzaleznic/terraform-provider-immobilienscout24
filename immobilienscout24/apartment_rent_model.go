@@ -15,6 +15,7 @@ type apartmentRentModel struct {
 	Title                       types.String   `tfsdk:"title"`
 	Address                     *addressModel  `tfsdk:"address"`
 	ShowAddress                 types.Bool     `tfsdk:"show_address"`
+	ContactID                   types.String   `tfsdk:"contact_id"`
 	DescriptionNote             types.String   `tfsdk:"description_note"`
 	FurnishingNote              types.String   `tfsdk:"furnishing_note"`
 	LocationNote                types.String   `tfsdk:"location_note"`
@@ -60,7 +61,10 @@ type courtageModel struct {
 }
 
 // toDocument builds the complete request document from a plan. Null and
-// unknown optional values are left out, which on PUT clears them.
+// unknown optional values are left out, which on PUT clears them. That
+// includes the contact: a PUT without one resets the listing to the default
+// contact (observed 2026-09-29), so Update fills in the listing's current
+// contact first when the configuration leaves contact_id out.
 func (m *apartmentRentModel) toDocument() *apartmentRentDocument {
 	f := apartmentRentFields{
 		ExternalID:                  m.ExternalID.ValueString(),
@@ -88,6 +92,9 @@ func (m *apartmentRentModel) toDocument() *apartmentRentDocument {
 		BuiltInKitchen:              m.BuiltInKitchen.ValueBoolPointer(),
 		Balcony:                     m.Balcony.ValueBoolPointer(),
 		Garden:                      m.Garden.ValueBoolPointer(),
+	}
+	if !m.ContactID.IsNull() && !m.ContactID.IsUnknown() {
+		f.Contact = &idElement{ID: m.ContactID.ValueString()}
 	}
 	if a := m.Address; a != nil {
 		f.Address = &addressElement{
@@ -180,6 +187,11 @@ func fromDocument(id string, doc *apartmentRentDocument, prior *apartmentRentMod
 				Longitude: p.float64("wgs84Coordinate.longitude", &lon, priorCoords.Longitude),
 			}
 		}
+	}
+	// Every GET names the listing's contact, the default contact included
+	// (observed 2026-09-29), as <contact id="..." externalId="..."/>.
+	if c := doc.Contact; c != nil {
+		m.ContactID = optionalString(strings.TrimSpace(c.ID))
 	}
 	if c := doc.Courtage; c != nil {
 		m.Courtage = &courtageModel{
