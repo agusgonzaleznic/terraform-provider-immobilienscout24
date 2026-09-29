@@ -78,4 +78,62 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Without TF_ACC the acceptance tests skip, so this runs the unit tests only.
       - run: go test -v -cover ./...
+
+  acceptance:
+    name: Acceptance tests (${{ matrix.cli }} ${{ matrix.version }})
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cli: terraform
+            version: "1.14.*"
+          - cli: terraform
+            version: "1.16.*"
+          - cli: tofu
+            version: "1.11.*"
+          - cli: tofu
+            version: "1.12.*"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - if: matrix.cli == 'terraform'
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ matrix.version }}
+          terraform_wrapper: false
+      - if: matrix.cli == 'tofu'
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ matrix.version }}
+          tofu_wrapper: false
+      # Runs against the in-process fake API; no network access to
+      # ImmobilienScout24 and no secrets. The live sandbox test skips because
+      # IMMOBILIENSCOUT24_LIVE is not set.
+      - name: go test with TF_ACC=1
+        env:
+          TF_ACC: "1"
+          CLI: ${{ matrix.cli }}
+        run: |
+          TF_ACC_TERRAFORM_PATH="$(command -v "$CLI")"
+          export TF_ACC_TERRAFORM_PATH
+          if [ "$CLI" = tofu ]; then
+            # OpenTofu rejects the legacy "-" namespace that the test harness
+            # also registers by default, and resolves bare provider names on
+            # registry.opentofu.org.
+            export TF_ACC_PROVIDER_NAMESPACE=hashicorp
+            export TF_ACC_PROVIDER_HOST=registry.opentofu.org
+          fi
+          "$CLI" version
+          go test -v -cover -timeout 12m ./...
