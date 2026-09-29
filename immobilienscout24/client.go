@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dghubble/oauth1"
@@ -26,6 +28,9 @@ const (
 	// realEstatePath is the collection resource for the authenticated user.
 	// "me" is the documented stand-in for the username under 3-legged OAuth.
 	realEstatePath = "/offer/v1.0/user/me/realestate/"
+	// publishPath is the publish resource. A publication, one real estate on
+	// one publish channel, has the id "{realEstateID}_{channelID}".
+	publishPath = "/offer/v1.0/publish"
 
 	mediaTypeXML = "application/xml"
 
@@ -40,18 +45,27 @@ const (
 	codeResourceCreated        = "MESSAGE_RESOURCE_CREATED"
 	codeResourceNotFound       = "ERROR_RESOURCE_NOT_FOUND"
 	codeCommonResourceNotFound = "ERROR_COMMON_RESOURCE_NOT_FOUND"
+	codeRequestConflict        = "ERROR_COMMON_REQUEST_CONFLICT"
 )
 
 // ErrNotFound matches, via errors.Is, an APIError that the API documented as
 // "resource not found". A bare 404 without such a message code does not match,
 // because the API also answers 404 for an unsupported Accept header.
-var ErrNotFound = errors.New("real estate not found")
+var ErrNotFound = errors.New("resource not found")
+
+// ErrConflict matches, via errors.Is, a 409 ERROR_COMMON_REQUEST_CONFLICT
+// response. The sandbox answers that way when a listing is published on a
+// channel it is already published on (observed 2026-09-29).
+var ErrConflict = errors.New("request conflict")
 
 // Client talks to the ImmobilienScout24 Import/Export API.
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
 	userAgent  string
+
+	// publishMu makes publish requests wait for each other; see Publish.
+	publishMu sync.Mutex
 }
 
 // NewClient returns a client that signs every request with OAuth 1.0a
@@ -125,13 +139,20 @@ func (e *APIError) Codes() []string {
 	return codes
 }
 
-// Is reports whether the error is a documented not-found response.
+// Is reports whether the error is a documented not-found or conflict response.
 func (e *APIError) Is(target error) bool {
-	if target != ErrNotFound || e.StatusCode != http.StatusNotFound {
-		return false
+	switch target {
+	case ErrNotFound:
+		return e.StatusCode == http.StatusNotFound && e.hasCode(codeResourceNotFound, codeCommonResourceNotFound)
+	case ErrConflict:
+		return e.StatusCode == http.StatusConflict && e.hasCode(codeRequestConflict)
 	}
+	return false
+}
+
+func (e *APIError) hasCode(codes ...string) bool {
 	for _, m := range e.Messages {
-		if m.Code == codeResourceNotFound || m.Code == codeCommonResourceNotFound {
+		if slices.Contains(codes, m.Code) {
 			return true
 		}
 	}
@@ -148,7 +169,12 @@ func (c *Client) CreateApartmentRent(ctx context.Context, doc *apartmentRentDocu
 	if err != nil {
 		return "", err
 	}
-	return createdID(resp)
+	id, detail := createdID(resp, scoutID)
+	if id == "" {
+		return "", fmt.Errorf("the API accepted the real estate (HTTP %d) but the provider could not determine its id (%s). "+
+			"The object probably exists in the account now and has to be removed or imported by hand", resp.status, detail)
+	}
+	return id, nil
 }
 
 // GetApartmentRent retrieves a real estate by scout id.
@@ -174,6 +200,51 @@ func (c *Client) UpdateApartmentRent(ctx context.Context, id string, doc *apartm
 // DeleteRealEstate deletes a real estate of any type by scout id.
 func (c *Client) DeleteRealEstate(ctx context.Context, id string) error {
 	_, err := c.do(ctx, http.MethodDelete, realEstatePath+url.PathEscape(id), nil)
+	return err
+}
+
+// Publish publishes a real estate on a publish channel and returns the id of
+// the publication. The documentation asks to "send the POST publish requests
+// one after the other and not in parallel", because each one checks the
+// realtor's quota. Terraform creates resources in parallel, so publish
+// requests through one Client wait for each other.
+func (c *Client) Publish(ctx context.Context, realEstateID, channelID string) (string, error) {
+	body, err := marshalPublishRequest(realEstateID, channelID)
+	if err != nil {
+		return "", err
+	}
+	c.publishMu.Lock()
+	defer c.publishMu.Unlock()
+	resp, err := c.do(ctx, http.MethodPost, publishPath, body)
+	if err != nil {
+		return "", err
+	}
+	want := publicationID(realEstateID, channelID)
+	id, detail := createdID(resp, publicationIDPattern)
+	switch {
+	case id == "":
+		return "", fmt.Errorf("the API accepted the publication (HTTP %d) but the provider could not determine its id (%s). "+
+			"The listing is probably published now; import the publication with the id %s", resp.status, detail, want)
+	case id != want:
+		return "", fmt.Errorf("the API accepted the publication (HTTP %d) but reported the id %s instead of %s", resp.status, id, want)
+	}
+	return id, nil
+}
+
+// GetPublication retrieves a publication by its id.
+func (c *Client) GetPublication(ctx context.Context, id string) (*Publication, error) {
+	resp, err := c.do(ctx, http.MethodGet, publishPath+"/"+url.PathEscape(id), nil)
+	if err != nil {
+		return nil, err
+	}
+	return unmarshalPublication(id, resp.body)
+}
+
+// Unpublish removes a publication. The documentation calls this DELETE
+// idempotent, but the sandbox answers a repeated one with 404
+// ERROR_RESOURCE_NOT_FOUND (observed 2026-09-29), which matches ErrNotFound.
+func (c *Client) Unpublish(ctx context.Context, id string) error {
+	_, err := c.do(ctx, http.MethodDelete, publishPath+"/"+url.PathEscape(id), nil)
 	return err
 }
 
@@ -249,39 +320,39 @@ func parseMessages(body []byte) ([]Message, error) {
 }
 
 var (
-	createdIDText = regexp.MustCompile(`with id \[(\d+)\]`)
-	scoutID       = regexp.MustCompile(`^\d+$`)
+	createdIDText        = regexp.MustCompile(`with id \[([^\]]+)\]`)
+	scoutID              = regexp.MustCompile(`^\d+$`)
+	publicationIDPattern = regexp.MustCompile(`^\d+_\d+$`)
 )
 
-// createdID extracts the new scout id from a create response. The documented
-// body carries it in <message><id>; the Responses page also promises a
-// Location header, and the message text repeats the id, so both are fallbacks.
-func createdID(resp *response) (string, error) {
+// createdID extracts the id of a new resource from a create response; valid
+// matches a well-formed id. The documented body carries it in <message><id>;
+// the Responses page also promises a Location header, and the message text
+// repeats the id, so both are fallbacks. Without an id, detail says why.
+func createdID(resp *response, valid *regexp.Regexp) (id, detail string) {
 	msgs, parseErr := parseMessages(resp.body)
 	for _, m := range msgs {
-		if m.Code == codeResourceCreated && scoutID.MatchString(strings.TrimSpace(m.ID)) {
-			return strings.TrimSpace(m.ID), nil
+		if m.Code == codeResourceCreated && valid.MatchString(strings.TrimSpace(m.ID)) {
+			return strings.TrimSpace(m.ID), ""
 		}
 	}
 	if resp.location != "" {
 		if u, err := url.Parse(resp.location); err == nil {
 			segment := u.Path[strings.LastIndex(u.Path, "/")+1:]
-			if scoutID.MatchString(segment) {
-				return segment, nil
+			if valid.MatchString(segment) {
+				return segment, ""
 			}
 		}
 	}
 	for _, m := range msgs {
 		if m.Code == codeResourceCreated {
-			if match := createdIDText.FindStringSubmatch(m.Text); match != nil {
-				return match[1], nil
+			if match := createdIDText.FindStringSubmatch(m.Text); match != nil && valid.MatchString(match[1]) {
+				return match[1], ""
 			}
 		}
 	}
-	detail := "no id in the response body or Location header"
 	if parseErr != nil {
-		detail = "response is not a <common:messages> document: " + parseErr.Error()
+		return "", "response is not a <common:messages> document: " + parseErr.Error()
 	}
-	return "", fmt.Errorf("the API accepted the real estate (HTTP %d) but the provider could not determine its id (%s). "+
-		"The object probably exists in the account now and has to be removed or imported by hand", resp.status, detail)
+	return "", "no id in the response body or Location header"
 }

@@ -14,19 +14,16 @@ package immobilienscout24
 //     against the live XSD fixture (see xsd_test.go), not a hand-written list.
 //
 // Behaviour the documentation does not pin down is simulated and marked
-// "simulated" below.
+// "simulated" below. The publish resource is in fake_api_publish_test.go and
+// the OAuth check in fake_oauth_test.go.
 
 import (
-	"crypto/hmac"
-	"crypto/sha1" //nolint:gosec // OAuth 1.0a HMAC-SHA1 is what the API uses.
-	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -83,6 +80,8 @@ type fakeAPI struct {
 	// lowercaseAddress makes GET return street and city in lower case, as the
 	// documented Retrieve example does.
 	lowercaseAddress bool
+	// pub holds the publications, see fake_api_publish_test.go.
+	pub fakePublishState
 }
 
 func newFakeAPI(t testing.TB) *fakeAPI {
@@ -92,6 +91,7 @@ func newFakeAPI(t testing.TB) *fakeAPI {
 		nextID:           315000001,
 		objects:          map[string]*xnode{},
 		deletedOutOfBand: map[string]bool{},
+		pub:              fakePublishState{publications: map[string]fakePublication{}},
 		topOrder:         mustElements(t, realEstatesNamespace, "ApartmentRent"),
 		addressOrder:     mustElements(t, commonNamespace, "Wgs84Address"),
 	}
@@ -151,6 +151,7 @@ func (f *fakeAPI) DeleteOutOfBand(id string) {
 	defer f.mu.Unlock()
 	delete(f.objects, id)
 	f.deletedOutOfBand[id] = true
+	f.pub.removedOutOfBand = append(f.pub.removedOutOfBand, f.removePublications(id)...)
 }
 
 // SetOutOfBand changes a top-level element as if edited on the website.
@@ -191,6 +192,8 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 		f.create(w, body)
 	case isItem && id != "" && !strings.Contains(id, "/"):
 		f.item(w, r.Method, id, body)
+	case r.URL.Path == fakePublishPath || strings.HasPrefix(r.URL.Path, fakePublishPath+"/"):
+		f.handlePublish(w, r.Method, r.URL.Path, body)
 	default:
 		writeMessages(w, http.StatusMethodNotAllowed, "ERROR_COMMON_METHOD_NOT_ALLOWED", "Method not allowed.")
 	}
@@ -255,6 +258,7 @@ func (f *fakeAPI) item(w http.ResponseWriter, method, id string, body []byte) {
 	case http.MethodDelete:
 		f.mu.Lock()
 		delete(f.objects, id)
+		f.removePublications(id)
 		f.mu.Unlock()
 		// Verbatim from the Delete a Real Estate page, with the fake's id.
 		writeRaw(w, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>
@@ -411,9 +415,14 @@ func (f *fakeAPI) render(id string, obj *xnode) string {
 			}}})
 		}
 		writeNode(&b, &out)
-		if c.Name == "title" {
+		switch c.Name {
+		case "title":
 			writeNode(&b, &xnode{Name: "creationDate", Text: "2026-09-29T10:00:00.000+02:00"})
 			writeNode(&b, &xnode{Name: "lastModificationDate", Text: "2026-09-29T10:00:00.000+02:00"})
+		case "address":
+			writeNode(&b, &xnode{Name: "realEstateState", Text: f.realEstateState(id)})
+		case "showAddress":
+			f.writePublishChannels(&b, id)
 		}
 	}
 	b.WriteString(`</realestates:apartmentRent>`)
@@ -450,70 +459,6 @@ func writeMessages(w http.ResponseWriter, status int, code, text string) {
 	_ = xml.EscapeText(&b, []byte(text))
 	b.WriteString(`</message></message></common:messages>`)
 	writeRaw(w, status, b.String())
-}
-
-// verifyOAuth checks an RFC 5849 HMAC-SHA1 signature against the test
-// credentials. XML bodies are not part of the signature base string.
-func verifyOAuth(r *http.Request) error {
-	header, ok := strings.CutPrefix(r.Header.Get("Authorization"), "OAuth ")
-	if !ok {
-		return fmt.Errorf("no OAuth Authorization header")
-	}
-	params := map[string]string{}
-	for _, part := range strings.Split(header, ",") {
-		k, v, found := strings.Cut(strings.TrimSpace(part), "=")
-		if !found {
-			return fmt.Errorf("malformed OAuth parameter %q", part)
-		}
-		unquoted, err := url.PathUnescape(strings.Trim(v, `"`))
-		if err != nil {
-			return err
-		}
-		params[k] = unquoted
-	}
-	for k, want := range map[string]string{
-		"oauth_consumer_key":     fakeConsumerKey,
-		"oauth_token":            fakeAccessToken,
-		"oauth_signature_method": "HMAC-SHA1",
-		"oauth_version":          "1.0",
-	} {
-		if params[k] != want {
-			return fmt.Errorf("%s = %q, want %q", k, params[k], want)
-		}
-	}
-	signature := params["oauth_signature"]
-	var pairs []string
-	for k, v := range params {
-		if k != "oauth_signature" && k != "realm" {
-			pairs = append(pairs, oauthEncode(k)+"="+oauthEncode(v))
-		}
-	}
-	for k, vs := range r.URL.Query() {
-		for _, v := range vs {
-			pairs = append(pairs, oauthEncode(k)+"="+oauthEncode(v))
-		}
-	}
-	sort.Strings(pairs)
-	baseURL := "http://" + strings.ToLower(r.Host) + r.URL.EscapedPath()
-	base := r.Method + "&" + oauthEncode(baseURL) + "&" + oauthEncode(strings.Join(pairs, "&"))
-	mac := hmac.New(sha1.New, []byte(oauthEncode(fakeConsumerSecret)+"&"+oauthEncode(fakeAccessTokenSecret)))
-	mac.Write([]byte(base))
-	if want := base64.StdEncoding.EncodeToString(mac.Sum(nil)); !hmac.Equal([]byte(signature), []byte(want)) {
-		return fmt.Errorf("OAuth signature does not verify")
-	}
-	return nil
-}
-
-func oauthEncode(s string) string {
-	var b strings.Builder
-	for _, c := range []byte(s) {
-		if ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z') || ('0' <= c && c <= '9') || strings.IndexByte("-._~", c) >= 0 {
-			b.WriteByte(c)
-		} else {
-			fmt.Fprintf(&b, "%%%02X", c)
-		}
-	}
-	return b.String()
 }
 
 // sandboxDefaults are the values the live sandbox sets for fields a create

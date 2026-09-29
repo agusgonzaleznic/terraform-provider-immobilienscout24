@@ -3,13 +3,13 @@
 page_title: "immobilienscout24_apartment_rent Resource - immobilienscout24"
 subcategory: ""
 description: |-
-  An apartment for rent (realestates:apartmentRent) in the ImmobilienScout24 account of the access token. New objects are created unpublished; publishing is not managed by this provider yet.
+  An apartment for rent (realestates:apartmentRent) in the ImmobilienScout24 account of the access token. New objects are created unpublished; publish them with immobilienscout24_publication.
   The API treats every update as a full replacement ("You have to send all attributes, also if only one attribute has changed"). Fields this resource does not model, such as an energy certificate or a contact set on the website, can therefore be reset when Terraform updates the object.
 ---
 
 # immobilienscout24_apartment_rent (Resource)
 
-An apartment for rent (`realestates:apartmentRent`) in the ImmobilienScout24 account of the access token. New objects are created unpublished; publishing is not managed by this provider yet.
+An apartment for rent (`realestates:apartmentRent`) in the ImmobilienScout24 account of the access token. New objects are created unpublished; publish them with `immobilienscout24_publication`.
 
 The API treats every update as a full replacement ("You have to send all attributes, also if only one attribute has changed"). Fields this resource does not model, such as an energy certificate or a contact set on the website, can therefore be reset when Terraform updates the object.
 
