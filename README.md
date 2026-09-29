@@ -1,61 +1,62 @@
 # terraform-provider-immobilienscout24
-[![GitHub Release Workflow Status](https://img.shields.io/github/actions/workflow/status/agusgonzaleznic/terraform-provider-immobilienscout24/release.yml?label=Build&labelColor=black&logo=GitHub%20Actions&style=flat-square)](https://github.com/agusgonzaleznic/terraform-provider-immobilienscout24/actions/workflows/release.yml)
-[![Terraform Registry Version](https://img.shields.io/github/v/release/agusgonzaleznic/terraform-provider-immobilienscout24?labelColor=black&label=TF%20Registry&logo=terraform&logoColor=7b42bc&color=7b42bc&style=flat-square)](https://registry.terraform.io/providers/agusgonzaleznic/immobilienscout24/latest)
-[![Terraform Registry Downloads](https://img.shields.io/badge/dynamic/json?color=7b42bc&label=Downloads&labelColor=black&logo=terraform&logoColor=7b42bc&query=data.attributes.total&url=https%3A%2F%2Fregistry.terraform.io%2Fv2%2Fproviders%2F3133%2Fdownloads%2Fsummary&style=flat-square)](https://registry.terraform.io/providers/agusgonzaleznic/immobilienscout24/latest)
 
-A minimal, unofficial Terraform provider for [Immobilienscout24](https://www.immobilienscout24.de/) that allows you to insert new real estate listings using the [Immobilienscout24 API](https://api.immobilienscout24.de/api-docs/introduction/).
+An unofficial Terraform provider for [ImmobilienScout24](https://www.immobilienscout24.de/), built on the
+[ImmobilienScout24 API](https://api.immobilienscout24.de/api-docs/import-export/introduction/) and the
+Terraform Plugin Framework.
 
-> **Status:** MVP/prototype. Supports only "Insert Real Estate" on the sandbox API.  
-> Not for production use.
-
----
-
-## Features
-
-- Insert new real estate entries into your Immobilienscout24 account (sandbox or production).
-- Authenticate using OAuth1.
-
----
+> **Status:** early prototype. It supports one resource, `immobilienscout24_realestate`, and only
+> creates it, against the sandbox API. It is not published to a registry yet and is not ready for
+> production use.
 
 ## Requirements
 
-- [Terraform 1.12go+](https://www.terraform.io/downloads)
-- Go 1.24+ (if building from source)
-- Immobilienscout24 API credentials (OAuth1, sandbox or live)
+- [Terraform](https://developer.hashicorp.com/terraform/install) 1.0 or newer
+- [Go](https://go.dev/doc/install) 1.24 or newer, to build from source
+- ImmobilienScout24 sandbox API credentials (OAuth 1.0a). See
+  [Get Your Client Credentials](https://api.immobilienscout24.de/api-docs/get-started/get-your-client-credentials/).
 
----
+## Installation
 
-## Usage
+The provider is not on a registry yet, so build it locally and point Terraform at the build.
 
-### 1. Build the Provider
+1. Build the binary into your Go bin directory:
 
-```sh
-git clone https://github.com/agusgonzaleznic/terraform-provider-immobilienscout24.git
-cd terraform-provider-immobilienscout24
-go build -o terraform-provider-immobilienscout24
-````
+   ```sh
+   git clone https://github.com/agusgonzaleznic/terraform-provider-immobilienscout24.git
+   cd terraform-provider-immobilienscout24
+   go install .
+   ```
 
-Copy the resulting binary to your Terraform working directory or follow [the local provider installation instructions](https://developer.hashicorp.com/terraform/plugins/discovery#plugin-installation-directories).
+2. Tell Terraform to use that build instead of a registry download. Add this to `~/.terraformrc`,
+   replacing the path with the output of `go env GOBIN` (or `$(go env GOPATH)/bin` when that is empty):
 
----
+   ```hcl
+   provider_installation {
+     dev_overrides {
+       "agusgonzaleznic/immobilienscout24" = "/Users/you/go/bin"
+     }
+     direct {}
+   }
+   ```
 
-### 2. Example `main.tf`
+   With `dev_overrides` in place, skip `terraform init` and run `terraform plan` directly.
+
+## Example
 
 ```hcl
 terraform {
   required_providers {
     immobilienscout24 = {
-      source  = "agusgonzaleznic/immobilienscout24"
-      version = "0.1.0"
+      source = "agusgonzaleznic/immobilienscout24"
     }
   }
 }
 
 provider "immobilienscout24" {
-  consumer_key        = "YOUR_CONSUMER_KEY"
-  consumer_secret     = "YOUR_CONSUMER_SECRET"
-  access_token        = "YOUR_ACCESS_TOKEN"
-  access_token_secret = "YOUR_ACCESS_TOKEN_SECRET"
+  consumer_key        = var.consumer_key
+  consumer_secret     = var.consumer_secret
+  access_token        = var.access_token
+  access_token_secret = var.access_token_secret
 }
 
 resource "immobilienscout24_realestate" "example" {
@@ -68,49 +69,15 @@ resource "immobilienscout24_realestate" "example" {
 }
 ```
 
----
-
-### 3. Initialize & Apply
-
-```sh
-terraform init
-terraform apply
-```
-
----
-
-## Supported Resource(s)
-
-* `immobilienscout24_realestate`
-
-  * `title` (string, required)
-  * `description_note` (string, required)
-  * `street` (string, required)
-  * `house_number` (string, required)
-  * `postcode` (string, required)
-  * `city` (string, required)
-  * `id` (computed, assigned by API)
-
----
+Keep the credentials out of the configuration file: pass them as variables from a secret store,
+never as literals.
 
 ## Limitations
 
-* Only supports creating real estate objects (insert).
-* No read/update/delete or data sources.
-* No test coverage or production hardening.
-* Uses Immobilienscout24's [Import/Export API](https://api.immobilienscout24.de/api-docs/import-export/real-estate/insert-real-estate/).
-
----
-
-## Development
-
-PRs and issues are welcome!
-This provider is for demonstration and prototyping only.
-
----
+- Only create is implemented. Read, update and delete are not, so `terraform destroy` does not
+  remove the listing from ImmobilienScout24.
+- There is no test coverage yet.
 
 ## License
 
 MIT
-
-

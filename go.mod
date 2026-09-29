@@ -2,10 +2,12 @@ module github.com/agusgonzaleznic/terraform-provider-immobilienscout24
 
 go 1.24.4
 
-require github.com/hashicorp/terraform-plugin-framework v1.15.0
+require (
+	github.com/dghubble/oauth1 v0.7.3
+	github.com/hashicorp/terraform-plugin-framework v1.15.0
+)
 
 require (
-	github.com/dghubble/oauth1 v0.7.3 // indirect
 	github.com/fatih/color v1.13.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/hashicorp/go-hclog v1.5.0 // indirect
