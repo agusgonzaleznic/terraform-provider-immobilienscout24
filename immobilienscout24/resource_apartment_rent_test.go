@@ -157,11 +157,12 @@ func TestAccApartmentRent_lifecycle(t *testing.T) {
 					resource.TestCheckResourceAttrPtr(testResourceName, "id", &id),
 					resource.TestCheckResourceAttr(testResourceName, "title", "anonymized, updated"),
 					resource.TestCheckNoResourceAttr(testResourceName, "description_note"),
-					resource.TestCheckNoResourceAttr(testResourceName, "lift"),
+					// Removed from the configuration, lift falls back to the API default.
+					resource.TestCheckResourceAttr(testResourceName, "lift", "false"),
 					checkFullPut(f, &id),
 					checkFakeHas(f, &id, "title", "anonymized, updated"),
 					checkFakeHas(f, &id, "descriptionNote", ""),
-					checkFakeHas(f, &id, "lift", ""),
+					checkFakeHas(f, &id, "lift", "false"),
 				),
 			},
 			{
@@ -263,6 +264,9 @@ resource "immobilienscout24_apartment_rent" "test" {
 				ResourceName:      testResourceName,
 				ImportState:       true,
 				ImportStateVerify: true,
+				// Import cannot tell configured coordinates from geocoded ones, so
+				// it leaves them unmanaged; the next plan adds them back.
+				ImportStateVerifyIgnore: []string{"address.coordinates"},
 			},
 		},
 	})

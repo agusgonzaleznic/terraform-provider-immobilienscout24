@@ -278,6 +278,19 @@ func (f *fakeAPI) store(id string, obj *xnode) {
 	if obj.child("externalId") == nil {
 		obj.Children = append([]*xnode{{Name: "externalId", Text: id}}, obj.Children...)
 	}
+	// The sandbox fills these in when a request leaves them out (observed
+	// 2026-09-29); GET returns them like any other field.
+	for _, d := range sandboxDefaults {
+		if obj.child(d[0]) == nil {
+			obj.Children = append(obj.Children, &xnode{Name: d[0], Text: d[1]})
+		}
+	}
+	// The sandbox geocodes an address sent without coordinates.
+	if a := obj.child("address"); a != nil && a.child("wgs84Coordinate") == nil {
+		a.Children = append(a.Children, &xnode{Name: "wgs84Coordinate", Children: []*xnode{
+			{Name: "latitude", Text: "52.52534"}, {Name: "longitude", Text: "13.36666"},
+		}})
+	}
 	if f.lowercaseAddress {
 		if a := obj.child("address"); a != nil {
 			for _, name := range []string{"street", "city"} {
@@ -501,4 +514,17 @@ func oauthEncode(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// sandboxDefaults are the values the live sandbox sets for fields a create
+// request omits.
+var sandboxDefaults = [][2]string{
+	{"apartmentType", "NO_INFORMATION"},
+	{"lift", "false"},
+	{"cellar", "NOT_APPLICABLE"},
+	{"heatingCostsInServiceCharge", "NOT_APPLICABLE"},
+	{"petsAllowed", "NO_INFORMATION"},
+	{"builtInKitchen", "false"},
+	{"balcony", "false"},
+	{"garden", "false"},
 }

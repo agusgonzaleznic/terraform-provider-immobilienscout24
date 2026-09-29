@@ -70,24 +70,24 @@ resource "immobilienscout24_apartment_rent" "example" {
 
 ### Optional
 
-- `apartment_type` (String) Apartment type (`apartmentType`). One of `ROOF_STOREY`, `LOFT`, `MAISONETTE`, `PENTHOUSE`, `TERRACED_FLAT`, `GROUND_FLOOR`, `APARTMENT`, `RAISED_GROUND_FLOOR`, `HALF_BASEMENT`, `OTHER`, `NO_INFORMATION`.
-- `balcony` (Boolean) Whether there is a balcony (`balcony`).
-- `built_in_kitchen` (Boolean) Whether there is a built-in kitchen (`builtInKitchen`).
-- `cellar` (String) Cellar (`cellar`). One of `YES`, `NOT_APPLICABLE`.
+- `apartment_type` (String) Apartment type (`apartmentType`). One of `ROOF_STOREY`, `LOFT`, `MAISONETTE`, `PENTHOUSE`, `TERRACED_FLAT`, `GROUND_FLOOR`, `APARTMENT`, `RAISED_GROUND_FLOOR`, `HALF_BASEMENT`, `OTHER`, `NO_INFORMATION`. Defaults to `NO_INFORMATION`, as the API does.
+- `balcony` (Boolean) Whether there is a balcony (`balcony`). Defaults to `false`, as the API does.
+- `built_in_kitchen` (Boolean) Whether there is a built-in kitchen (`builtInKitchen`). Defaults to `false`, as the API does.
+- `cellar` (String) Cellar (`cellar`). One of `YES`, `NOT_APPLICABLE`. Defaults to `NOT_APPLICABLE`, as the API does.
 - `deposit` (String) Deposit, as free text (`deposit`), at most 50 characters.
 - `description_note` (String) Object description (`descriptionNote`). At most 3999 bytes. The API supports no HTML except `<br>`.
 - `external_id` (String) Your own id for the object (`externalId`), unique within the account, at most 50 characters. When omitted, ImmobilienScout24 sets it to the scout object id. Removing it from the configuration later keeps the current value.
 - `floor` (Number) Floor the apartment is on (`floor`), 0 to 999.
 - `free_from` (String) When the apartment is available, as free text (`freeFrom`), at most 50 characters.
 - `furnishing_note` (String) Description of the furnishing (`furnishingNote`). At most 3999 bytes. The API supports no HTML except `<br>`.
-- `garden` (Boolean) Whether there is a garden (`garden`).
+- `garden` (Boolean) Whether there is a garden (`garden`). Defaults to `false`, as the API does.
 - `heating_costs` (Number) Monthly heating costs (`heatingCosts`). In EUR.
-- `heating_costs_in_service_charge` (String) Whether the heating costs are included in the service charge (`heatingCostsInServiceCharge`). Must not be `NOT_APPLICABLE` when `heating_costs` is set. One of `YES`, `NO`, `NOT_APPLICABLE`.
-- `lift` (Boolean) Whether the building has a lift (`lift`).
+- `heating_costs_in_service_charge` (String) Whether the heating costs are included in the service charge (`heatingCostsInServiceCharge`). Must be `YES` or `NO` when `heating_costs` is set. One of `YES`, `NO`, `NOT_APPLICABLE`. Defaults to `NOT_APPLICABLE`, as the API does.
+- `lift` (Boolean) Whether the building has a lift (`lift`). Defaults to `false`, as the API does.
 - `location_note` (String) Description of the location (`locationNote`). At most 3999 bytes. The API supports no HTML except `<br>`.
 - `number_of_floors` (Number) Number of floors of the building (`numberOfFloors`), 0 to 999.
 - `other_note` (String) Other information (`otherNote`). At most 3999 bytes. The API supports no HTML except `<br>`.
-- `pets_allowed` (String) Whether pets are allowed (`petsAllowed`). One of `NO_INFORMATION`, `NEGOTIABLE`, `YES`, `NO`.
+- `pets_allowed` (String) Whether pets are allowed (`petsAllowed`). One of `NO_INFORMATION`, `NEGOTIABLE`, `YES`, `NO`. Defaults to `NO_INFORMATION`, as the API does.
 - `service_charge` (Number) Monthly service charge (`serviceCharge`, Nebenkosten). In EUR.
 - `total_rent` (Number) Monthly total rent (`totalRent`, Warmmiete). In EUR.
 
