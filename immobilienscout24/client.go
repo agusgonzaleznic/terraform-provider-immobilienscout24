@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +37,8 @@ const (
 
 	// maxResponseBytes caps how much of a response body is read at all.
 	maxResponseBytes = 1 << 20
-	// maxErrorBodyBytes caps how much of an unparseable body goes into an error.
+	// maxErrorBodyBytes caps how much of an unparseable body, and of each
+	// message's code and text, goes into an error.
 	maxErrorBodyBytes = 1024
 )
 
@@ -131,64 +131,6 @@ type Message struct {
 type messagesDocument struct {
 	XMLName  xml.Name  `xml:"messages"`
 	Messages []Message `xml:"message"`
-}
-
-// APIError is a non-2xx response. It never carries request headers, so it
-// cannot leak the OAuth Authorization header.
-type APIError struct {
-	Method     string
-	Path       string
-	StatusCode int
-	Messages   []Message
-	// Body holds the start of the response body when it was not a
-	// <common:messages> document, truncated to maxErrorBodyBytes.
-	Body string
-}
-
-func (e *APIError) Error() string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s: HTTP %d %s", e.Method, e.Path, e.StatusCode, http.StatusText(e.StatusCode))
-	for _, m := range e.Messages {
-		fmt.Fprintf(&b, "\n%s: %s", m.Code, strings.TrimSpace(m.Text))
-	}
-	if len(e.Messages) == 0 && e.Body != "" {
-		fmt.Fprintf(&b, "\n%s", e.Body)
-	}
-	return b.String()
-}
-
-// Codes returns the message codes of the error response.
-func (e *APIError) Codes() []string {
-	codes := make([]string, 0, len(e.Messages))
-	for _, m := range e.Messages {
-		codes = append(codes, m.Code)
-	}
-	return codes
-}
-
-// Is reports whether the error is a documented not-found or conflict response,
-// or the refusal to delete the default contact.
-func (e *APIError) Is(target error) bool {
-	switch target {
-	case ErrNotFound:
-		return e.StatusCode == http.StatusNotFound && e.hasCode(codeResourceNotFound, codeCommonResourceNotFound)
-	case ErrConflict:
-		return e.StatusCode == http.StatusConflict && e.hasCode(codeRequestConflict)
-	case ErrDefaultContact:
-		return e.StatusCode == http.StatusPreconditionFailed && slices.ContainsFunc(e.Messages, func(m Message) bool {
-			return m.Code == codeResourceValidation && defaultContactUndeletable.MatchString(m.Text)
-		})
-	}
-	return false
-}
-
-func (e *APIError) hasCode(codes ...string) bool {
-	for _, m := range e.Messages {
-		if slices.Contains(codes, m.Code) {
-			return true
-		}
-	}
-	return false
 }
 
 // realEstateQuery makes the API take and return the eight newer energy
@@ -379,7 +321,9 @@ func (c *Client) send(ctx context.Context, client *http.Client, method, path, co
 			// url.Error repeats the full URL; keep only the cause.
 			err = urlErr.Err
 		}
-		return nil, fmt.Errorf("%s %s: %w", method, path, err)
+		// The cause can quote the server, such as the names in its TLS
+		// certificate.
+		return nil, fmt.Errorf("%s %s: %s", method, path, errorText(err.Error()))
 	}
 	defer func() { _ = httpResp.Body.Close() }()
 
@@ -393,21 +337,6 @@ func (c *Client) send(ctx context.Context, client *http.Client, method, path, co
 		return nil, newAPIError(method, path, httpResp.StatusCode, respBody)
 	}
 	return &response{status: httpResp.StatusCode, location: httpResp.Header.Get("Location"), body: respBody}, nil
-}
-
-func newAPIError(method, path string, status int, body []byte) *APIError {
-	apiErr := &APIError{Method: method, Path: path, StatusCode: status}
-	if msgs, err := parseMessages(body); err == nil && len(msgs) > 0 {
-		apiErr.Messages = msgs
-		return apiErr
-	}
-	// Some errors (429, gateway errors) come back as plain text.
-	text := strings.TrimSpace(string(body))
-	if len(text) > maxErrorBodyBytes {
-		text = strings.ToValidUTF8(text[:maxErrorBodyBytes], "") + "... (truncated)"
-	}
-	apiErr.Body = text
-	return apiErr
 }
 
 func parseMessages(body []byte) ([]Message, error) {
@@ -451,7 +380,7 @@ func createdID(resp *response, valid *regexp.Regexp) (id, detail string) {
 		}
 	}
 	if parseErr != nil {
-		return "", "response is not a <common:messages> document: " + parseErr.Error()
+		return "", "response is not a <common:messages> document: " + errorText(parseErr.Error())
 	}
 	return "", "no id in the response body or Location header"
 }

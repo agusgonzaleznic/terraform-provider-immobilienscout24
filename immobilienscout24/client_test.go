@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -347,5 +348,125 @@ func TestFromDocumentKeepsPriorNumbersAndParsesNormalised(t *testing.T) {
 	doc.LivingSpace = &bad
 	if _, err := fromDocument("1", doc, prior); err == nil {
 		t.Fatal("expected an error for a non-numeric livingSpace")
+	}
+}
+
+// The texts of an error response cannot drive the terminal that Terraform
+// prints them on: every control character but newline and tab is escaped, in
+// a plain body and in the code and text of every message, and each text is
+// capped like the body. The body clears the screen and prints a green "Apply
+// complete!", which would make a failed apply look like a success.
+func TestAPIErrorTextsCannotDriveTheTerminal(t *testing.T) {
+	check := func(name string, err error, bad, want []string) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("%s: no error", name)
+		}
+		for _, s := range bad {
+			if strings.Contains(err.Error(), s) {
+				t.Errorf("%s: the error contains %q:\n%s", name, s, err)
+			}
+		}
+		for _, s := range want {
+			if !strings.Contains(err.Error(), s) {
+				t.Errorf("%s: the error lacks %q:\n%s", name, s, err)
+			}
+		}
+	}
+	body := "\x1b[2J\x1b[H\x1b[32mApply complete!\x1b[0m\r\n\tnext\x7f \u009b31m \xff \x00end"
+	c := stubServer(t, http.StatusBadGateway, nil, body)
+	check("plain body", c.DeleteRealEstate(context.Background(), "1"),
+		[]string{"\x1b", "\r", "\x7f", "\u009b", "\xff", "\x00"},
+		[]string{`\x1b[2J\x1b[H\x1b[32mApply complete!\x1b[0m\x0d` + "\n\tnext", `\x7f \u009b31m \xff \x00end`})
+
+	// XML refuses the other C0 controls, but a message can carry CR, DEL and C1.
+	messages := `<common:messages xmlns:common="` + commonNamespace + `"><message><messageCode>ERROR_RESOURCE_VALIDATION` +
+		"\u009b" + `2J</messageCode><message>refused` + "\u009b" + `31m&#13;` + "\x7f" + ` text</message></message></common:messages>`
+	c = stubServer(t, http.StatusPreconditionFailed, nil, messages)
+	check("messages", c.DeleteRealEstate(context.Background(), "1"),
+		[]string{"\u009b", "\r", "\x7f"},
+		[]string{`ERROR_RESOURCE_VALIDATION\u009b2J: refused\u009b31m\x0d\x7f text`})
+
+	long := strings.Repeat("\u00e9", 1000)
+	c = stubServer(t, http.StatusPreconditionFailed, nil, `<common:messages xmlns:common="`+commonNamespace+
+		`"><message><messageCode>ERROR_RESOURCE_VALIDATION</messageCode><message>`+long+`</message></message></common:messages>`)
+	err := c.DeleteRealEstate(context.Background(), "1")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || len(apiErr.Messages) != 1 {
+		t.Fatalf("expected an *APIError with one message, got %v", err)
+	}
+	if text := apiErr.Messages[0].Text; len(text) > maxErrorBodyBytes+len("... (truncated)") ||
+		!strings.HasSuffix(text, "\u00e9... (truncated)") {
+		t.Errorf("a message text of %d bytes became %d bytes: ...%s", len(long), len(text), text[len(text)-20:])
+	}
+}
+
+// The ids and the attachment type that a response carries go into errors as
+// well, and XML lets a CR (&#13;) and a C1 character such as CSI (&#155;)
+// into them: they come out escaped there too.
+func TestReturnedIDsAndTypesInErrorsAreEscaped(t *testing.T) {
+	const cr, csi = "&#13;", "&#155;"
+	attachment := func(typ, id string) []byte {
+		return []byte(`<common:attachment xmlns:common="` + commonNamespace + `" xmlns:xsi="` + xsiNamespace +
+			`" xsi:type="common:` + typ + `" id="` + id + `"></common:attachment>`)
+	}
+	_, attachmentErr := unmarshalAttachment("1", attachment(attachmentPicture, "2"+cr+csi))
+	_, contactErr := unmarshalContact("1", []byte(`<common:realtorContactDetail xmlns:common="`+commonNamespace+
+		`" id="2`+cr+csi+`"/>`))
+	doc, err := unmarshalAttachment("1", attachment(attachmentPicture+cr+csi, "1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		err  error
+		want string
+	}{
+		{attachmentErr, `asked for attachment 1, the API returned attachment 2\x0d\u009b`},
+		{contactErr, `asked for contact 1, the API returned contact 2\x0d\u009b`},
+		{wrongAttachmentType(doc.Type, "10", "1", attachmentLink), `attachment 1 of real estate 10 is a common:Picture\x0d\u009b, not a common:Link`},
+	} {
+		if c.err == nil || !strings.Contains(c.err.Error(), c.want) || strings.ContainsAny(c.err.Error(), "\r\u009b") {
+			t.Errorf("want an error with %s and no raw CR or CSI, got %q", c.want, c.err)
+		}
+	}
+}
+
+// The client never follows a redirect: the request it would send on to the
+// host a response names would carry a fresh OAuth signature, and an upload its
+// file. A 302 or 307 fails the call with an APIError, and the target of the
+// redirect gets no request, for a plain call as for an upload.
+func TestClientRefusesRedirects(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+	}))
+	defer target.Close()
+	ctx := context.Background()
+	for _, status := range []int{http.StatusFound, http.StatusTemporaryRedirect} {
+		origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target.URL+r.URL.Path, status)
+		}))
+		c := NewClient(origin.URL, "ck", "cs", "at", "ats", "test")
+		for name, call := range map[string]func() error{
+			"GET": func() error {
+				return c.GetRealEstate(ctx, &apartmentRentKind.realEstateType, "1", &apartmentRentDocument{})
+			},
+			"upload": func() error {
+				_, err := c.UploadAttachment(ctx, "1", fullPictureModel().toDocument(pictureKind, anonymizedJPEGSHA256, false),
+					attachmentFile{Name: "anonymized.jpg", ContentType: "image/jpeg", Content: []byte("jpeg")})
+				return err
+			},
+		} {
+			hits.Store(0)
+			err := call()
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+				t.Errorf("%s answered with %d: %v, want an *APIError with that status", name, status, err)
+			}
+			if n := hits.Load(); n != 0 {
+				t.Errorf("%s answered with %d: the redirect target got %d requests", name, status, n)
+			}
+		}
+		origin.Close()
 	}
 }

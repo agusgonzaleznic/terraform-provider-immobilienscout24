@@ -100,7 +100,7 @@ func marshalAttachment(doc *attachmentDocument) ([]byte, error) {
 func unmarshalAttachment(id string, body []byte) (*attachmentDocument, error) {
 	var resp attachmentResponse
 	if err := xml.NewDecoder(bytes.NewReader(body)).Decode(&resp); err != nil {
-		return nil, fmt.Errorf("decoding attachment response: %w", err)
+		return nil, fmt.Errorf("decoding attachment response: %s", errorText(err.Error()))
 	}
 	switch {
 	case resp.XMLName.Space == commonNamespace && resp.XMLName.Local == "attachments":
@@ -114,7 +114,7 @@ func unmarshalAttachment(id string, body []byte) (*attachmentDocument, error) {
 		return nil, fmt.Errorf("expected a common:attachment, the API returned <%s> in namespace %q",
 			resp.XMLName.Local, resp.XMLName.Space)
 	case resp.ID != "" && resp.ID != id:
-		return nil, fmt.Errorf("asked for attachment %s, the API returned attachment %s", id, resp.ID)
+		return nil, fmt.Errorf("asked for attachment %s, the API returned attachment %s", id, errorText(resp.ID))
 	}
 	return resp.document(), nil
 }

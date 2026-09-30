@@ -12,8 +12,8 @@ Manages real estate listings through the [ImmobilienScout24 Import/Export API](h
 ## Example Usage
 
 ```terraform
-# The credentials are best supplied through environment variables, so that they
-# never appear in configuration or state:
+# Supply the credentials through environment variables. That keeps them out of
+# Terraform files, version control and saved plans:
 #
 #   export IMMOBILIENSCOUT24_CONSUMER_KEY=...
 #   export IMMOBILIENSCOUT24_CONSUMER_SECRET=...
@@ -32,7 +32,7 @@ provider "immobilienscout24" {
 
 - `access_token` (String, Sensitive) OAuth access token, for example the personal access token. Can also be set with the `IMMOBILIENSCOUT24_ACCESS_TOKEN` environment variable.
 - `access_token_secret` (String, Sensitive) OAuth access token secret. Can also be set with the `IMMOBILIENSCOUT24_ACCESS_TOKEN_SECRET` environment variable.
-- `base_url` (String) For testing and advanced use only: an absolute `http` or `https` URL that replaces the API root (the part before `/offer/v1.0/...`), for example a local fake of the API. Conflicts with `environment`.
+- `base_url` (String) For testing and advanced use only: an absolute `https` URL that replaces the API root (the part before `/offer/v1.0/...`), or an `http` one for a loopback host (`localhost`, `127.0.0.0/8` or `::1`), for example a local fake of the API. Conflicts with `environment`.
 - `consumer_key` (String, Sensitive) OAuth consumer key (the API key). Can also be set with the `IMMOBILIENSCOUT24_CONSUMER_KEY` environment variable.
 - `consumer_secret` (String, Sensitive) OAuth consumer secret of the API key. Can also be set with the `IMMOBILIENSCOUT24_CONSUMER_SECRET` environment variable.
 - `environment` (String) Which ImmobilienScout24 API to talk to: `sandbox` (the default, `https://rest.sandbox-immobilienscout24.de/restapi/api`) or `production` (`https://rest.immobilienscout24.de/restapi/api`). API keys are issued per environment.

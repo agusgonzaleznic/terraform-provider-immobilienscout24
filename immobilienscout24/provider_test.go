@@ -1,10 +1,13 @@
 package immobilienscout24
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 )
@@ -100,9 +103,55 @@ func TestCheckAbsoluteHTTPURL(t *testing.T) {
 		"https://":                                              false,
 		"https://example.com/?a=b":                              false,
 		"https://user:pw@example.com":                           false,
+		// http only for a loopback host.
+		"http://localhost:8080/restapi/api":            true,
+		"http://LocalHost/restapi/api":                 true,
+		"http://127.1.2.3:8080/restapi/api":            true,
+		"http://[::1]:8080/restapi/api":                true,
+		"https://localhost/restapi/api":                true,
+		"http://rest.immobilienscout24.de/restapi/api": false,
+		"http://10.0.0.1:8080/restapi/api":             false,
+		"http://localhost.example.com/restapi/api":     false,
+		"http://[::2]:8080/restapi/api":                false,
 	} {
 		if err := checkAbsoluteHTTPURL(raw); (err == nil) != ok {
 			t.Errorf("checkAbsoluteHTTPURL(%q) = %v, want ok=%v", raw, err, ok)
 		}
+	}
+}
+
+// No error about base_url repeats a secret that the value holds: a password,
+// a user name used as a token, a query or fragment, or anything of a value
+// that does not parse.
+func TestBaseURLErrorsDoNotRepeatSecrets(t *testing.T) {
+	for _, raw := range []string{
+		"https://user:s3cr3t@example.com/restapi/api", // trufflehog:ignore (a fake credential under test)
+		"http://user:s3cr3t@example.com/restapi/api",  // trufflehog:ignore (a fake credential under test)
+		"https://s3cr3t@example.com/restapi/api",
+		"https://example.com/restapi/api?token=s3cr3t",
+		"https://example.com/restapi/api#s3cr3t",
+		"http://example.com/restapi/api?token=s3cr3t",
+		"ftp://user:s3cr3t@example.com", // trufflehog:ignore (a fake credential under test)
+		"https:user:s3cr3t@example.com",
+		"https://user:s3cr3t@exa mple.com/restapi/api",
+	} {
+		err := checkAbsoluteHTTPURL(raw)
+		if err == nil {
+			t.Errorf("%q: accepted", raw)
+			continue
+		}
+		resp := &validator.StringResponse{}
+		absoluteHTTPURL{}.ValidateString(context.Background(), validator.StringRequest{
+			Path: path.Root("base_url"), ConfigValue: types.StringValue(raw),
+		}, resp)
+		detail := resp.Diagnostics.Errors()[0].Detail()
+		for _, text := range []string{err.Error(), detail} {
+			if strings.Contains(text, "s3cr3t") || strings.Contains(text, "exa mple") {
+				t.Errorf("%q: the error repeats the value: %s", raw, text)
+			}
+		}
+	}
+	if err := checkAbsoluteHTTPURL("https://user:s3cr3t@exa mple.com"); err == nil || err.Error() != "the value does not parse as a URL" {
+		t.Errorf("a value that does not parse: %v", err)
 	}
 }

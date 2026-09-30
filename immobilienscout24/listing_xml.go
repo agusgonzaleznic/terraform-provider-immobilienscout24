@@ -140,7 +140,7 @@ func unmarshalListing(typ *realEstateType, body []byte, doc any) error {
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return fmt.Errorf("decoding real estate response: %w", err)
+			return fmt.Errorf("decoding real estate response: %s", errorText(err.Error()))
 		}
 		start, ok := tok.(xml.StartElement)
 		if !ok {
@@ -151,7 +151,7 @@ func unmarshalListing(typ *realEstateType, body []byte, doc any) error {
 				"this resource only manages %s", typ.root, start.Name.Local, start.Name.Space, typ.plural)
 		}
 		if err := dec.DecodeElement(doc, &start); err != nil {
-			return fmt.Errorf("decoding real estate response: %w", err)
+			return fmt.Errorf("decoding real estate response: %s", errorText(err.Error()))
 		}
 		return nil
 	}

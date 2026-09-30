@@ -228,15 +228,21 @@ type parser struct {
 	err error
 }
 
+// number parses a returned number. strconv.ParseFloat also takes NaN and the
+// infinities ("NaN", "Inf", "infinity", in any letter case), which are no
+// numbers the API has, and types.Float64Value panics on a NaN, which would
+// crash the provider and lose a listing it has just created; so they do not
+// parse either.
 func (p *parser) number(element string, raw *string) (float64, bool) {
 	if raw == nil || strings.TrimSpace(*raw) == "" {
 		return 0, false
 	}
 	v, err := strconv.ParseFloat(strings.TrimSpace(*raw), 64)
-	if err != nil && p.err == nil {
+	ok := err == nil && !math.IsNaN(v) && !math.IsInf(v, 0)
+	if !ok && p.err == nil {
 		p.err = fmt.Errorf("the API returned %q for %s, which is not a number", *raw, element)
 	}
-	return v, err == nil
+	return v, ok
 }
 
 func (p *parser) float64(element string, raw *string, prior types.Float64) types.Float64 {
@@ -250,17 +256,24 @@ func (p *parser) float64(element string, raw *string, prior types.Float64) types
 	return types.Float64Value(v)
 }
 
-// int64 accepts integral decimals such as "4.0" as well as "4".
+// int64 accepts integral decimals such as "4.0" as well as "4", within the
+// range of an int64: converting a float64 outside it gives no defined value.
 func (p *parser) int64(element string, raw *string) types.Int64 {
 	v, ok := p.number(element, raw)
 	if !ok {
 		return types.Int64Null()
 	}
-	if v != math.Trunc(v) {
-		if p.err == nil {
-			p.err = fmt.Errorf("the API returned %q for %s, which is not a whole number", *raw, element)
-		}
-		return types.Int64Null()
+	var problem string
+	switch {
+	case v != math.Trunc(v):
+		problem = "which is not a whole number"
+	case v < -(1<<63) || v >= 1<<63:
+		problem = "which is out of the range of a 64-bit integer"
+	default:
+		return types.Int64Value(int64(v))
 	}
-	return types.Int64Value(int64(v))
+	if p.err == nil {
+		p.err = fmt.Errorf("the API returned %q for %s, %s", *raw, element, problem)
+	}
+	return types.Int64Null()
 }

@@ -457,12 +457,13 @@ var attachmentResources = map[string]string{
 }
 
 // wrongAttachmentType reports an attachment of another type than expected,
-// which happens when an id is imported into the wrong resource.
+// which happens when an id is imported into the wrong resource. got comes
+// from the response, so it goes through errorText.
 func wrongAttachmentType(got, realEstateID, id, want string) error {
 	if got == "" {
 		return fmt.Errorf("attachment %s of real estate %s has no xsi:type, expected common:%s", id, realEstateID, want)
 	}
-	msg := fmt.Sprintf("attachment %s of real estate %s is a common:%s, not a common:%s", id, realEstateID, got, want)
+	msg := fmt.Sprintf("attachment %s of real estate %s is a common:%s, not a common:%s", id, realEstateID, errorText(got), want)
 	if name, ok := attachmentResources[got]; ok {
 		return fmt.Errorf("%s; import it as %s instead", msg, name)
 	}

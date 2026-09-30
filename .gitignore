@@ -34,3 +34,15 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Terraform files from running an example or a test by hand. State holds the
+# listings' contact data, and tfvars files may hold credentials.
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+crash.log
+crash.*.log

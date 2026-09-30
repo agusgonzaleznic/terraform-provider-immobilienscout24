@@ -1,0 +1,27 @@
+# Custom TruffleHog detectors for the secrets this repository handles, which the
+# built-in detectors do not know: the ImmobilienScout24 OAuth credentials and
+# an armored PGP private key such as the release signing key. The patterns
+# follow the shapes of real sandbox credentials, so that placeholders such as
+# YOUR_CONSUMER_SECRET and the fake credentials in the tests do not match.
+detectors:
+  - name: ImmobilienScout24ConsumerSecret
+    keywords:
+      - consumer_secret
+    regex:
+      secret: '(?i)consumer_secret["'']?\s*[:=]\s*["'']?([A-Za-z0-9]{16})(?:["''\s,]|$)'
+  - name: ImmobilienScout24AccessToken
+    keywords:
+      - access_token
+    regex:
+      token: '(?i)access_token["'']?\s*[:=]\s*["'']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'
+  - name: ImmobilienScout24AccessTokenSecret
+    keywords:
+      - access_token_secret
+    regex:
+      secret: '(?i)access_token_secret["'']?\s*[:=]\s*["'']?([A-Za-z0-9+/]{80,}={0,2})'
+  - name: PGPPrivateKeyBlock
+    keywords:
+      - BEGIN PGP PRIVATE KEY BLOCK
+    regex:
+      # [K] keeps this line from matching itself.
+      key: '(-----BEGIN PGP PRIVATE KEY BLOC[K]-----)'

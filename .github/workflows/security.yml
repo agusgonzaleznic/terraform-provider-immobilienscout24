@@ -12,8 +12,8 @@ on:
 
 # No job here writes to the repository, so the default token is narrowed to the
 # minimum each one needs. CodeQL cannot upload its results without
-# security-events: write, and it reads workflow metadata for the Actions query
-# pack, which is what actions: read is for.
+# security-events: write, and it reads workflow metadata for its analysis of
+# the workflows themselves, which is what actions: read is for.
 permissions: {}
 
 jobs:
@@ -27,18 +27,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'go' ]
+        include:
+          - language: go
+            build-mode: autobuild
+          # The workflows, for injection and permission problems.
+          - language: actions
+            build-mode: none
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
     - name: Initialize CodeQL
       uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
       with:
         languages: ${{ matrix.language }}
-    - name: Autobuild
-      uses: github/codeql-action/autobuild@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        build-mode: ${{ matrix.build-mode }}
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      with:
+        category: "/language:${{ matrix.language }}"
 
   TruffleHog:
     runs-on: ubuntu-latest
@@ -55,7 +63,13 @@ jobs:
       # schedule or a manual run the whole history. A fixed base of the default
       # branch equals HEAD on every push to main, and the action exits with
       # "BASE and HEAD commits are the same" without scanning anything.
+      # The action runs the scanner image by tag, so the pin above does not pin
+      # the scanner: version names its tag and digest (bump both with the
+      # action). The config adds detectors for the ImmobilienScout24
+      # credentials and PGP private keys, which the built-in ones miss.
       - name: TruffleHog Scan
         uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85 # v3.97.9
         with:
           path: ./
+          version: 3.97.9@sha256:52e67fef4d054ecff5c2ce4b4ae376626d1ef54aa0898b53cac19c25e92e14db
+          extra_args: --config=.github/trufflehog.yml

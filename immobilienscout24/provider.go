@@ -2,7 +2,9 @@ package immobilienscout24
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -83,9 +85,9 @@ func (p *immobilienscout24Provider) Schema(_ context.Context, _ provider.SchemaR
 				},
 			},
 			"base_url": schema.StringAttribute{
-				MarkdownDescription: "For testing and advanced use only: an absolute `http` or `https` URL that " +
-					"replaces the API root (the part before `/offer/v1.0/...`), for example a local fake of the API. " +
-					"Conflicts with `environment`.",
+				MarkdownDescription: "For testing and advanced use only: an absolute `https` URL that replaces the API " +
+					"root (the part before `/offer/v1.0/...`), or an `http` one for a loopback host (`localhost`, " +
+					"`127.0.0.0/8` or `::1`), for example a local fake of the API. Conflicts with `environment`.",
 				Optional: true,
 				Validators: []validator.String{
 					absoluteHTTPURL{},
@@ -201,11 +203,14 @@ func (p *immobilienscout24Provider) DataSources(_ context.Context) []func() data
 	return nil
 }
 
-// absoluteHTTPURL validates that a string is an absolute http or https URL.
+// absoluteHTTPURL validates base_url: an absolute https URL, or an http one
+// for a loopback host. Over plain http anywhere else, the OAuth-signed
+// requests, with the listings and contacts in them, would cross the network
+// readable and changeable by anyone on the way.
 type absoluteHTTPURL struct{}
 
 func (absoluteHTTPURL) Description(_ context.Context) string {
-	return "value must be an absolute http or https URL"
+	return "value must be an absolute https URL, or an http URL for a loopback host"
 }
 
 func (v absoluteHTTPURL) MarkdownDescription(ctx context.Context) string {
@@ -221,19 +226,46 @@ func (v absoluteHTTPURL) ValidateString(ctx context.Context, req validator.Strin
 	}
 }
 
+// checkAbsoluteHTTPURL checks base_url. Its errors never repeat the value
+// verbatim, which can hold a password or a token; see shownURL.
 func checkAbsoluteHTTPURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("%q does not parse", raw)
+		// The error of url.Parse quotes the value.
+		return errors.New("the value does not parse as a URL")
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("%q has no http or https scheme", raw)
-	}
-	if u.Host == "" {
-		return fmt.Errorf("%q has no host", raw)
-	}
-	if u.RawQuery != "" || u.Fragment != "" || u.User != nil {
-		return fmt.Errorf("%q must not contain a query, fragment or user info", raw)
+	switch {
+	case u.Scheme != "http" && u.Scheme != "https":
+		return fmt.Errorf("%q has no http or https scheme", shownURL(u))
+	case u.Host == "":
+		return fmt.Errorf("%q has no host", shownURL(u))
+	case u.RawQuery != "" || u.Fragment != "" || u.User != nil:
+		return fmt.Errorf("%q must not contain a query, fragment or user info", shownURL(u))
+	case u.Scheme == "http" && !isLoopback(u.Hostname()):
+		return fmt.Errorf("%q uses http, which is only allowed for a loopback host (localhost, 127.0.0.0/8 or ::1); "+
+			"use https", shownURL(u))
 	}
 	return nil
+}
+
+// shownURL is u for an error message: with the password redacted, as
+// u.Redacted does, and without what can hold a secret too, the user name, the
+// query, the fragment and an opaque part.
+func shownURL(u *url.URL) string {
+	shown := *u
+	shown.Opaque, shown.RawQuery, shown.Fragment, shown.RawFragment = "", "", "", ""
+	if shown.User != nil {
+		shown.User = url.UserPassword("xxxxx", "xxxxx")
+	}
+	return shown.Redacted()
+}
+
+// isLoopback reports whether host is localhost or a loopback address, in
+// 127.0.0.0/8 or ::1.
+func isLoopback(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

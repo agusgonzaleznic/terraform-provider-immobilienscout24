@@ -77,7 +77,8 @@ A value set in the provider block wins over the environment variable. All four a
 
 `environment` selects the API: `sandbox` (the default, `https://rest.sandbox-immobilienscout24.de/restapi/api`)
 or `production` (`https://rest.immobilienscout24.de/restapi/api`). `base_url` replaces the API root entirely;
-it exists for tests and advanced use, and conflicts with `environment`.
+it exists for tests and advanced use, and conflicts with `environment`. It must be an `https` URL, except for a
+loopback host (`localhost`, `127.0.0.0/8` or `::1`), such as a local fake of the API, which may use `http`.
 
 ## Example
 
@@ -214,6 +215,8 @@ resource "immobilienscout24_apartment_rent" "example" {
 }
 ```
 
+- The Terraform state holds the personal data of each contact, such as names, email addresses and phone numbers,
+  so keep it in an access-controlled, encrypted backend.
 - Phone numbers are written in one piece: country code, area code and subscriber number, separated by spaces,
   such as `+49 30 24301999`. The country code starts with `+`, not `00`, and after `+49` the area code has no
   leading `0`.

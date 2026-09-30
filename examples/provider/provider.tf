@@ -1,5 +1,5 @@
-# The credentials are best supplied through environment variables, so that they
-# never appear in configuration or state:
+# Supply the credentials through environment variables. That keeps them out of
+# Terraform files, version control and saved plans:
 #
 #   export IMMOBILIENSCOUT24_CONSUMER_KEY=...
 #   export IMMOBILIENSCOUT24_CONSUMER_SECRET=...
