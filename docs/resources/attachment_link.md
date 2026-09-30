@@ -31,7 +31,7 @@ resource "immobilienscout24_attachment_link" "video" {
 ### Optional
 
 - `external_id` (String) Your own id for the attachment (`externalId`), at most 50 characters.
-- `title` (String) Title of the link (`title`), shown on the listing, at most 30 characters. When left out, ImmobilienScout24 sets `Link`.
+- `title` (String) Title of the link (`title`), shown on the listing, at most 30 characters. When left out, the title is `Link`, which ImmobilienScout24 sets. Removing it from the configuration later keeps the current title.
 
 ### Read-Only
 

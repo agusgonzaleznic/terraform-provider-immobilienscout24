@@ -239,9 +239,11 @@ resource "immobilienscout24_attachment_link" "video" {
 - **Limits:** ImmobilienScout24 accepts up to 150 pictures and PDF documents per listing, each at most 50 MB, and up
   to 150 links. Titles have at most 30 characters. The content type follows from the file's extension (`.jpg`,
   `.jpeg`, `.png`, `.gif`, `.pdf`), or from `content_type`.
-- **Titles are optional, and ImmobilienScout24 fills in a missing one.** A picture or PDF document without `title`
-  gets its file name without the extension, which is shown on the listing, so name the files accordingly; a link
-  gets `Link`. The provider uploads the file under its own name, reduced to letters, digits, `.`, `_` and `-`.
+- **Titles are optional.** A picture or PDF document without `title` is titled with its file name without the
+  extension, cut to 30 characters, and that title is shown on the listing, so name the files accordingly. The
+  provider sends this title itself, because ImmobilienScout24 would read the name of the uploaded file as Latin-1
+  and show `Küche 1.jpg` as "KÃ¼che 1". A link without `title` gets `Link` from ImmobilienScout24. Removing
+  `title` from the configuration later keeps the current title.
 - **A file must stay the same between plan and apply.** If it changes after `terraform plan`, Terraform stops the
   apply with "Provider produced inconsistent final plan", because the provider checks the file again, and nothing
   is uploaded. Plan again. When a file that was uploaded is missing, the plan keeps the attachment as it is and
@@ -296,9 +298,10 @@ uploads, the schema errors of the metadata, the titles it fills in, and the titl
 need a `terraform` or `tofu` binary but no credentials.
 
 The live sandbox test runs only when asked for explicitly. It creates a contact and an apartment that shows it,
-uploads a picture to the apartment and adds a link, publishes the apartment on channel `10000` of the sandbox,
-updates the apartment and the picture's title, unpublishes it and deletes the attachments while the apartment
-stays, checking on the sandbox that they are gone, and destroys the rest. It never changes the account's default
+uploads two pictures to the apartment, one of them untitled and named `Küche 1.jpg`, and adds a link, publishes
+the apartment on channel `10000` of the sandbox, updates the apartment and a picture's title, unpublishes it and
+deletes the attachments while the apartment stays, checking on the sandbox that they are gone, and destroys the
+rest. It never changes the account's default
 contact:
 
 ```sh

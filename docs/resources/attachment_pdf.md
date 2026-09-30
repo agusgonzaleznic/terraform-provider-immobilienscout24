@@ -37,7 +37,7 @@ resource "immobilienscout24_attachment_pdf" "floor_plan" {
 - `content_type` (String) The media type the file is uploaded with. Derived from the extension of `file` when not set: `application/pdf` for `.pdf`. Set it for a file with another extension. ImmobilienScout24 does not return it, so an import leaves it empty until the next apply. Changing it replaces the attachment.
 - `external_id` (String) Your own id for the attachment (`externalId`), at most 50 characters.
 - `floorplan` (Boolean) Whether the PDF document is a floor plan (`floorplan`). Defaults to `false`.
-- `title` (String) Title of the PDF document (`title`), shown on the listing, at most 30 characters. When left out, ImmobilienScout24 sets the uploaded file's name without its extension, so choose file names that can be shown publicly.
+- `title` (String) Title of the PDF document (`title`), shown on the listing, at most 30 characters. When left out, the title is the file's name without its extension, cut to 30 characters, so choose file names that can be shown publicly. Removing it from the configuration later keeps the current title.
 
 ### Read-Only
 

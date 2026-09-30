@@ -10,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/knownvalue"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
+	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
 // An attachment uploaded without a title gets one from ImmobilienScout24: the
@@ -120,5 +122,50 @@ func TestAccAttachmentPicture_fileChangedAfterPlanUploadsNothing(t *testing.T) {
 	})
 	if n := len(f.Requests("POST")); n != 1 {
 		t.Errorf("%d POST requests, want 1 (the listing, no upload)", n)
+	}
+}
+
+// Without a configured title, the title is the file name without its
+// extension, sent in the metadata: the API reads the upload's file name as
+// Latin-1 and would show "Küche 1.jpg" as "KÃ¼che 1".
+func TestAccAttachmentPicture_titleFromTheFileName(t *testing.T) {
+	f := newFakeAPI(t)
+	kitchen := copyTestFile(t, "anonymized.jpg", "Küche 1.jpg")
+	long := copyTestFile(t, "anonymized.jpg", "Wohnzimmer mit Blick auf den Fernsehturm.jpg")
+	config := testAccProviderBlock(f.BaseURL()) + testAccApartmentRentConfig("anonymized", "521.22", "") +
+		testAccAttachmentConfig("picture", "test", fileArgument(kitchen)) +
+		testAccAttachmentConfig("picture", "other", fileArgument(long))
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccAttachmentCheckDestroy(f),
+		Steps: []resource.TestStep{{
+			Config: config,
+			ConfigPlanChecks: resource.ConfigPlanChecks{
+				PreApply: []plancheck.PlanCheck{
+					plancheck.ExpectKnownValue(testPictureName, tfjsonpath.New("title"), knownvalue.StringExact("Küche 1")),
+				},
+				PostApplyPostRefresh: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
+			},
+			Check: resource.ComposeAggregateTestCheckFunc(
+				resource.TestCheckResourceAttr(testPictureName, "title", "Küche 1"),
+				resource.TestCheckResourceAttr(testOtherPictureName, "title", "Wohnzimmer mit Blick auf den F"),
+			),
+		}},
+	})
+}
+
+func TestDefaultTitle(t *testing.T) {
+	for file, want := range map[string]string{
+		"/tmp/Küche 1.jpg":                               "Küche 1",
+		"living-room.jpeg":                               "living-room",
+		"Schlafzimmer (Süd).png":                         "Schlafzimmer (Süd)",
+		"a/Wohnzimmer mit Blick auf den Fernsehturm.jpg": "Wohnzimmer mit Blick auf den F",
+		"archive.tar.gz":                                 "archive.tar",
+		" padded .pdf":                                   "padded",
+		".jpg":                                           "",
+	} {
+		if got := defaultTitle(file); got != want {
+			t.Errorf("defaultTitle(%q) = %q, want %q", file, got, want)
+		}
 	}
 }
