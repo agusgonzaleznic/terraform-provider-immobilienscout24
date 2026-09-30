@@ -191,13 +191,22 @@ func (e *APIError) hasCode(codes ...string) bool {
 	return false
 }
 
-// CreateApartmentRent inserts a real estate and returns its scout id.
-func (c *Client) CreateApartmentRent(ctx context.Context, doc *apartmentRentDocument) (string, error) {
-	body, err := marshalApartmentRent(doc)
+// realEstateQuery makes the API take and return the eight newer energy
+// sources, such as ENVIRONMENTAL_THERMAL_ENERGY. Without it a POST or PUT
+// that sends one fails with 412 "EnergySourceEnev2014 value
+// [ENVIRONMENTAL_THERMAL_ENERGY] is not allowed.", and a GET leaves the
+// energy sources out (observed 2026-09-30). Every real estate POST, PUT and
+// GET sends it; DELETE does not need it.
+const realEstateQuery = "?usenewenergysourceenev2014values=true"
+
+// CreateRealEstate inserts a listing and returns its scout id. doc is the
+// document of the listing type typ, such as an *apartmentRentDocument.
+func (c *Client) CreateRealEstate(ctx context.Context, typ *realEstateType, doc any) (string, error) {
+	body, err := marshalListing(typ, doc)
 	if err != nil {
 		return "", err
 	}
-	resp, err := c.do(ctx, http.MethodPost, realEstatePath, body)
+	resp, err := c.do(ctx, http.MethodPost, realEstatePath+realEstateQuery, body)
 	if err != nil {
 		return "", err
 	}
@@ -209,23 +218,24 @@ func (c *Client) CreateApartmentRent(ctx context.Context, doc *apartmentRentDocu
 	return id, nil
 }
 
-// GetApartmentRent retrieves a real estate by scout id.
-func (c *Client) GetApartmentRent(ctx context.Context, id string) (*apartmentRentDocument, error) {
-	resp, err := c.do(ctx, http.MethodGet, realEstatePath+url.PathEscape(id), nil)
-	if err != nil {
-		return nil, err
-	}
-	return unmarshalApartmentRent(resp.body)
-}
-
-// UpdateApartmentRent replaces a real estate. The API treats PUT as a full
-// replacement, so doc must hold every attribute, not only the changed ones.
-func (c *Client) UpdateApartmentRent(ctx context.Context, id string, doc *apartmentRentDocument) error {
-	body, err := marshalApartmentRent(doc)
+// GetRealEstate retrieves a listing by scout id into doc, a pointer to the
+// document of the listing type typ. A listing of another type is an error.
+func (c *Client) GetRealEstate(ctx context.Context, typ *realEstateType, id string, doc any) error {
+	resp, err := c.do(ctx, http.MethodGet, realEstatePath+url.PathEscape(id)+realEstateQuery, nil)
 	if err != nil {
 		return err
 	}
-	_, err = c.do(ctx, http.MethodPut, realEstatePath+url.PathEscape(id), body)
+	return unmarshalListing(typ, resp.body, doc)
+}
+
+// UpdateRealEstate replaces a listing. The API treats PUT as a full
+// replacement, so doc must hold every attribute, not only the changed ones.
+func (c *Client) UpdateRealEstate(ctx context.Context, typ *realEstateType, id string, doc any) error {
+	body, err := marshalListing(typ, doc)
+	if err != nil {
+		return err
+	}
+	_, err = c.do(ctx, http.MethodPut, realEstatePath+url.PathEscape(id)+realEstateQuery, body)
 	return err
 }
 

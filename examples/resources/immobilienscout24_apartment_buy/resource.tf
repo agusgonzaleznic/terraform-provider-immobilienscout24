@@ -1,6 +1,6 @@
-resource "immobilienscout24_apartment_rent" "example" {
-  external_id  = "berlin-mitte-3og-links"
-  title        = "Bright two-room apartment near Nordbahnhof"
+resource "immobilienscout24_apartment_buy" "example" {
+  external_id  = "berlin-mitte-2og-rechts"
+  title        = "Two-room apartment with balcony near Nordbahnhof"
   show_address = true
   contact_id   = immobilienscout24_contact.example.id
 
@@ -13,22 +13,16 @@ resource "immobilienscout24_apartment_rent" "example" {
 
   description_note = "Quiet courtyard side, renovated in 2024."
   apartment_type   = "APARTMENT"
-  floor            = 3
+  floor            = 2
   number_of_floors = 5
   lift             = true
   balcony          = true
   built_in_kitchen = true
   cellar           = "YES"
-  pets_allowed     = "NEGOTIABLE"
   free_from        = "01.11.2026"
 
-  base_rent                       = 950
-  service_charge                  = 180
-  heating_costs                   = 70
-  heating_costs_in_service_charge = "NO"
-  total_rent                      = 1200
-  deposit                         = "3 Kaltmieten"
-
+  purchase_price  = 389000
+  service_charge  = 310
   living_space    = 62.5
   number_of_rooms = 2
 
@@ -38,12 +32,13 @@ resource "immobilienscout24_apartment_rent" "example" {
     efficiency_class = "C"
   }
   construction_year           = 1998
-  heating_type                = "DISTRICT_HEATING"
-  energy_sources              = ["DISTRICT_HEATING"]
+  heating_type                = "CENTRAL_HEATING"
+  energy_sources              = ["GAS"]
   building_energy_rating_type = "ENERGY_CONSUMPTION"
-  thermal_characteristic      = 98.4
+  thermal_characteristic      = 95.5
 
   courtage = {
-    has_courtage = "NO"
+    has_courtage = "YES"
+    courtage     = "3,57 % inkl. MwSt."
   }
 }

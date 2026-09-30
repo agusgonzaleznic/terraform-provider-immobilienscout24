@@ -1,216 +1,124 @@
 package immobilienscout24
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"strings"
-
-	"github.com/hashicorp/terraform-plugin-framework/diag"
-	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-var (
-	_ resource.ResourceWithConfigure      = &apartmentRentResource{}
-	_ resource.ResourceWithImportState    = &apartmentRentResource{}
-	_ resource.ResourceWithValidateConfig = &apartmentRentResource{}
-)
-
-type apartmentRentResource struct {
-	client *Client
+// apartmentRentKind is immobilienscout24_apartment_rent, a
+// realestates:apartmentRent.
+var apartmentRentKind = &listingKind[apartmentRentModel, apartmentRentDocument]{
+	typeName:       "_apartment_rent",
+	realEstateType: realEstateType{root: "apartmentRent", plural: "apartment rentals"},
+	noun:           "apartment for rent",
+	schema:         apartmentRentSchema,
+	listing:        (*apartmentRentModel).listing,
+	toDocument:     (*apartmentRentModel).toDocument,
+	toModel:        (*apartmentRentDocument).toModel,
+	validate:       validateHeatingCosts,
 }
 
 // NewApartmentRentResource returns the immobilienscout24_apartment_rent resource.
 func NewApartmentRentResource() resource.Resource {
-	return &apartmentRentResource{}
+	return &listingResource[apartmentRentModel, apartmentRentDocument]{kind: apartmentRentKind}
 }
 
-func (r *apartmentRentResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_apartment_rent"
+func apartmentRentSchema() schema.Schema {
+	return listingSchema("An apartment for rent (`realestates:apartmentRent`)", "apartment",
+		apartmentAttributes(), rentAttributes(), roomAttributes())
 }
 
-func (r *apartmentRentResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = apartmentRentSchema()
+type apartmentRentModel struct {
+	listingModel
+	ApartmentType               types.String  `tfsdk:"apartment_type"`
+	Floor                       types.Int64   `tfsdk:"floor"`
+	Lift                        types.Bool    `tfsdk:"lift"`
+	BaseRent                    types.Float64 `tfsdk:"base_rent"`
+	TotalRent                   types.Float64 `tfsdk:"total_rent"`
+	ServiceCharge               types.Float64 `tfsdk:"service_charge"`
+	Deposit                     types.String  `tfsdk:"deposit"`
+	HeatingCosts                types.Float64 `tfsdk:"heating_costs"`
+	HeatingCostsInServiceCharge types.String  `tfsdk:"heating_costs_in_service_charge"`
+	PetsAllowed                 types.String  `tfsdk:"pets_allowed"`
+	LivingSpace                 types.Float64 `tfsdk:"living_space"`
+	NumberOfRooms               types.Float64 `tfsdk:"number_of_rooms"`
+	BuiltInKitchen              types.Bool    `tfsdk:"built_in_kitchen"`
+	Balcony                     types.Bool    `tfsdk:"balcony"`
+	Garden                      types.Bool    `tfsdk:"garden"`
 }
 
-func (r *apartmentRentResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-	client, ok := req.ProviderData.(*Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data",
-			fmt.Sprintf("Expected *Client, got %T. This is a bug in the provider.", req.ProviderData))
-		return
-	}
-	r.client = client
+// apartmentRentDocument is a realestates:apartmentRent; see listingFields for
+// the field order.
+type apartmentRentDocument struct {
+	listingFields                                // 1 to 19
+	ApartmentType               string           `xml:"apartmentType,omitempty"` // 20 ApartmentRent
+	Floor                       *string          `xml:"floor"`                   // 21
+	Lift                        *bool            `xml:"lift"`                    // 22
+	buildingFields                               // 24 to 41
+	BaseRent                    *string          `xml:"baseRent"`                              // 47
+	TotalRent                   *string          `xml:"totalRent"`                             // 48
+	ServiceCharge               *string          `xml:"serviceCharge"`                         // 49
+	Deposit                     string           `xml:"deposit,omitempty"`                     // 50
+	HeatingCosts                *string          `xml:"heatingCosts"`                          // 51
+	HeatingCostsInServiceCharge string           `xml:"heatingCostsInServiceCharge,omitempty"` // 52
+	PetsAllowed                 string           `xml:"petsAllowed,omitempty"`                 // 53
+	LivingSpace                 *string          `xml:"livingSpace"`                           // 57
+	NumberOfRooms               *string          `xml:"numberOfRooms"`                         // 58
+	BuiltInKitchen              *bool            `xml:"builtInKitchen"`                        // 60
+	Balcony                     *bool            `xml:"balcony"`                               // 61
+	Garden                      *bool            `xml:"garden"`                                // 63
+	Courtage                    *courtageElement `xml:"courtage"`                              // 64
 }
 
-// ValidateConfig enforces the documented cross-field rules the schema cannot express.
-func (r *apartmentRentResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var hasCourtage, courtage, heatingIncluded types.String
-	var heatingCosts types.Float64
-	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("courtage").AtName("has_courtage"), &hasCourtage)...)
-	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("courtage").AtName("courtage"), &courtage)...)
-	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("heating_costs"), &heatingCosts)...)
-	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("heating_costs_in_service_charge"), &heatingIncluded)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Field table: courtage is "Only mandatory, if hasCourtage=true", and the
-	// enum has YES rather than true.
-	if hasCourtage.ValueString() == "YES" && courtage.IsNull() {
-		resp.Diagnostics.AddAttributeError(path.Root("courtage").AtName("courtage"), "Missing commission",
-			"courtage.courtage is required when courtage.has_courtage is \"YES\".")
-	}
-	// Field table: "If you've entered a value for heating costs, than
-	// NOT_APPLICABLE is not allowed for this attribute."
-	// The attribute defaults to NOT_APPLICABLE, so leaving it out counts too.
-	if !heatingCosts.IsNull() && !heatingIncluded.IsUnknown() &&
-		(heatingIncluded.IsNull() || heatingIncluded.ValueString() == "NOT_APPLICABLE") {
-		resp.Diagnostics.AddAttributeError(path.Root("heating_costs_in_service_charge"), "Invalid combination",
-			"Set heating_costs_in_service_charge to \"YES\" or \"NO\" when heating_costs is set.")
-	}
-}
-
-func (r *apartmentRentResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan apartmentRentModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	id, err := r.client.CreateApartmentRent(ctx, plan.toDocument())
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating apartment rent", err.Error())
-		return
-	}
-
-	// Record the id before reading back: if the read fails, Terraform keeps
-	// the object as tainted instead of losing track of it.
-	plan.ID = types.StringValue(id)
-	if plan.ExternalID.IsUnknown() {
-		plan.ExternalID = types.StringNull()
-	}
-	if plan.ContactID.IsUnknown() {
-		plan.ContactID = types.StringNull()
-	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	r.readInto(ctx, id, &plan, &resp.State, &resp.Diagnostics, "Error reading apartment rent after creating it")
-}
-
-func (r *apartmentRentResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var state apartmentRentModel
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	doc, err := r.client.GetApartmentRent(ctx, state.ID.ValueString())
-	if errors.Is(err, ErrNotFound) {
-		resp.State.RemoveResource(ctx)
-		return
-	}
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading apartment rent", err.Error())
-		return
-	}
-	r.setFromDocument(ctx, state.ID.ValueString(), doc, &state, &resp.State, &resp.Diagnostics)
-}
-
-func (r *apartmentRentResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan, state apartmentRentModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	id := state.ID.ValueString()
-	plan.ID = state.ID
-
-	// PUT is a full replacement, so send the whole document from the plan.
-	// A PUT without a contact would reset the listing to the default contact,
-	// so when the configuration leaves contact_id out, send the contact the
-	// listing has right now. The state can be out of date: in the same apply
-	// Terraform may already have deleted that contact, which moves the listing
-	// to the default contact, and a PUT naming it fails with 412.
-	if plan.ContactID.IsUnknown() || plan.ContactID.IsNull() {
-		current, err := r.client.GetApartmentRent(ctx, id)
-		if err != nil {
-			resp.Diagnostics.AddError("Error reading the listing's contact before updating it", err.Error())
-			return
-		}
-		plan.ContactID = types.StringNull()
-		if current.Contact != nil {
-			plan.ContactID = optionalString(strings.TrimSpace(current.Contact.ID))
-		}
-	}
-	if err := r.client.UpdateApartmentRent(ctx, id, plan.toDocument()); err != nil {
-		resp.Diagnostics.AddError("Error updating apartment rent", err.Error())
-		return
-	}
-	r.readInto(ctx, id, &plan, &resp.State, &resp.Diagnostics, "Error reading apartment rent after updating it")
-}
-
-func (r *apartmentRentResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state apartmentRentModel
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	err := r.client.DeleteRealEstate(ctx, state.ID.ValueString())
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		resp.Diagnostics.AddError("Error deleting apartment rent", err.Error())
+// toDocument builds the complete request document from a plan; see
+// toListingFields.
+func (m *apartmentRentModel) toDocument() *apartmentRentDocument {
+	return &apartmentRentDocument{
+		listingFields:               m.toListingFields(),
+		ApartmentType:               m.ApartmentType.ValueString(),
+		Floor:                       formatInt(m.Floor),
+		Lift:                        m.Lift.ValueBoolPointer(),
+		buildingFields:              m.toBuildingFields(),
+		BaseRent:                    formatFloat(m.BaseRent),
+		TotalRent:                   formatFloat(m.TotalRent),
+		ServiceCharge:               formatFloat(m.ServiceCharge),
+		Deposit:                     m.Deposit.ValueString(),
+		HeatingCosts:                formatFloat(m.HeatingCosts),
+		HeatingCostsInServiceCharge: m.HeatingCostsInServiceCharge.ValueString(),
+		PetsAllowed:                 m.PetsAllowed.ValueString(),
+		LivingSpace:                 formatFloat(m.LivingSpace),
+		NumberOfRooms:               formatFloat(m.NumberOfRooms),
+		BuiltInKitchen:              m.BuiltInKitchen.ValueBoolPointer(),
+		Balcony:                     m.Balcony.ValueBoolPointer(),
+		Garden:                      m.Garden.ValueBoolPointer(),
+		Courtage:                    m.toCourtage(),
 	}
 }
 
-func (r *apartmentRentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	if !isDigits(req.ID) {
-		resp.Diagnostics.AddError("Invalid import ID",
-			fmt.Sprintf("Import an apartment by its numeric ImmobilienScout24 id (the scout id), got %q.", req.ID))
-		return
+// toModel maps a GET response onto the model; see readListing for prior.
+func (d *apartmentRentDocument) toModel(id string, prior *apartmentRentModel) (*apartmentRentModel, error) {
+	p := &parser{}
+	m := &apartmentRentModel{
+		listingModel:                readListing(p, id, &d.listingFields, d.Courtage, &d.buildingFields, &prior.listingModel),
+		ApartmentType:               optionalString(d.ApartmentType),
+		Floor:                       p.int64("floor", d.Floor),
+		Lift:                        types.BoolPointerValue(d.Lift),
+		BaseRent:                    p.float64("baseRent", d.BaseRent, prior.BaseRent),
+		TotalRent:                   p.float64("totalRent", d.TotalRent, prior.TotalRent),
+		ServiceCharge:               p.float64("serviceCharge", d.ServiceCharge, prior.ServiceCharge),
+		Deposit:                     optionalString(d.Deposit),
+		HeatingCosts:                p.float64("heatingCosts", d.HeatingCosts, prior.HeatingCosts),
+		HeatingCostsInServiceCharge: optionalString(d.HeatingCostsInServiceCharge),
+		PetsAllowed:                 optionalString(d.PetsAllowed),
+		LivingSpace:                 p.float64("livingSpace", d.LivingSpace, prior.LivingSpace),
+		NumberOfRooms:               p.float64("numberOfRooms", d.NumberOfRooms, prior.NumberOfRooms),
+		BuiltInKitchen:              types.BoolPointerValue(d.BuiltInKitchen),
+		Balcony:                     types.BoolPointerValue(d.Balcony),
+		Garden:                      types.BoolPointerValue(d.Garden),
 	}
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
-}
-
-// readInto reads the object back after a write and stores it, compared
-// against the plan so that server-side number formatting causes no diff.
-func (r *apartmentRentResource) readInto(ctx context.Context, id string, plan *apartmentRentModel, state *tfsdk.State, diags *diag.Diagnostics, summary string) {
-	doc, err := r.client.GetApartmentRent(ctx, id)
-	if err != nil {
-		diags.AddError(summary, err.Error())
-		return
+	if p.err != nil {
+		return nil, p.err
 	}
-	r.setFromDocument(ctx, id, doc, plan, state, diags)
-}
-
-func (r *apartmentRentResource) setFromDocument(ctx context.Context, id string, doc *apartmentRentDocument, prior *apartmentRentModel, state *tfsdk.State, diags *diag.Diagnostics) {
-	m, err := fromDocument(id, doc, prior)
-	if err != nil {
-		diags.AddError("Unexpected apartment rent from the API", err.Error())
-		return
-	}
-	diags.Append(state.Set(ctx, m)...)
-}
-
-// isDigits reports whether s is a non-empty string of ASCII digits.
-func isDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
+	return m, nil
 }

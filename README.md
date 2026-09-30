@@ -4,21 +4,26 @@ An unofficial Terraform and OpenTofu provider for [ImmobilienScout24](https://ww
 [ImmobilienScout24 Import/Export API](https://api.immobilienscout24.de/api-docs/import-export/introduction/) and the
 Terraform Plugin Framework.
 
-> **Status:** early. It manages apartment rentals, their publication, their contact addresses and their pictures,
-> PDF documents and links. It follows the API documentation, the live XSD, and publish, contact and attachment
-> calls observed on the ImmobilienScout24 sandbox. Its live acceptance test, which creates, publishes, updates,
-> imports and destroys a listing, passes against the sandbox; the contact and attachment steps added to it since
-> have not been run there yet. It has not been used against the production API.
+> **Status:** early. It manages apartments and houses for rent and for sale, with their energy certificate, their
+> publication, their contact addresses and their pictures, PDF documents and links. It follows the API
+> documentation, the live XSD, and listing, energy, publish, contact and attachment calls observed on the
+> ImmobilienScout24 sandbox. Its five live acceptance tests pass against the sandbox, on Terraform and on OpenTofu:
+> together they create, update, import and destroy a listing of every type, with energy certificates, and one of
+> them also publishes its listing and manages its contact and attachments. It has not been used against the
+> production API.
 
 ## Resources
 
 | Resource | Manages |
 |----------|---------|
+| [`immobilienscout24_apartment_buy`](docs/resources/apartment_buy.md) | An apartment for sale: create, read, update, delete, import |
 | [`immobilienscout24_apartment_rent`](docs/resources/apartment_rent.md) | An apartment for rent: create, read, update, delete, import |
 | [`immobilienscout24_attachment_link`](docs/resources/attachment_link.md) | A link of a listing, such as a video or a virtual tour: create, read, update, delete, import |
 | [`immobilienscout24_attachment_pdf`](docs/resources/attachment_pdf.md) | A PDF document of a listing, uploaded from a local file: create, read, update, delete, import |
 | [`immobilienscout24_attachment_picture`](docs/resources/attachment_picture.md) | A picture of a listing, uploaded from a local file: create, read, update, delete, import |
 | [`immobilienscout24_contact`](docs/resources/contact.md) | A contact address that listings show: create, read, update, delete, import |
+| [`immobilienscout24_house_buy`](docs/resources/house_buy.md) | A house for sale: create, read, update, delete, import |
+| [`immobilienscout24_house_rent`](docs/resources/house_rent.md) | A house for rent: create, read, update, delete, import |
 | [`immobilienscout24_publication`](docs/resources/publication.md) | The publication of a listing on one publish channel: create, read, delete, import |
 
 ## Requirements
@@ -110,12 +115,51 @@ resource "immobilienscout24_apartment_rent" "example" {
 }
 ```
 
-Every attribute is described in [docs/resources/apartment_rent.md](docs/resources/apartment_rent.md). An existing
-listing can be imported by its scout object id:
+`immobilienscout24_apartment_buy`, `immobilienscout24_house_rent` and `immobilienscout24_house_buy` work the same
+way, with the attributes of their type. Every attribute is described in [docs/resources/](docs/resources/), for
+example in [docs/resources/apartment_rent.md](docs/resources/apartment_rent.md). An existing listing can be
+imported by its scout object id:
 
 ```sh
 terraform import immobilienscout24_apartment_rent.example 315000001
 ```
+
+## Energy certificate
+
+Every listing resource takes the energy certificate and the energy values of the building:
+
+```hcl
+resource "immobilienscout24_house_rent" "example" {
+  # ...
+  energy_certificate = {
+    availability     = "AVAILABLE"
+    creation_date    = "FROM_01_MAY_2014"
+    efficiency_class = "A"
+  }
+  construction_year           = 2015
+  heating_type                = "HEAT_PUMP"
+  energy_sources              = ["ELECTRICITY", "ENVIRONMENTAL_THERMAL_ENERGY"]
+  building_energy_rating_type = "ENERGY_REQUIRED"
+  thermal_characteristic      = 45.2
+}
+```
+
+- The plan checks the rules ImmobilienScout24 enforces, so that a combination it refuses fails before anything is
+  sent. An `efficiency_class` needs `creation_date = "FROM_01_MAY_2014"` and a `building_energy_rating_type` of
+  `ENERGY_REQUIRED` or `ENERGY_CONSUMPTION`. `energy_consumption_contains_warm_water = "YES"` needs a
+  `thermal_characteristic`, and when both a creation date and a rating type are set, it is only valid for a
+  consumption certificate from before 1 May 2014. With `availability` set to `NOT_AVAILABLE_YET` or `NOT_REQUIRED`,
+  leave out the creation date, the class, the thermal characteristic and the rating type: ImmobilienScout24 refuses
+  each of them whatever its value, `NOT_APPLICABLE` and `NO_INFORMATION` included.
+- `energy_sources` is a set, because ImmobilienScout24 returns the sources in an order of its own, and defaults to
+  `["NO_INFORMATION"]`, as the API does. Every create, read and update of a listing asks for the newer sources, such
+  as `ENVIRONMENTAL_THERMAL_ENERGY`, which the API only takes and returns with
+  `usenewenergysourceenev2014values=true`; a delete does not send it.
+- ImmobilienScout24 derives fields of its own from these, such as `heatingType`, `firingTypes` and the
+  certificate's `legalConstructionYear`. They are not managed and cause no difference in a plan.
+- Decimal numbers take at most two decimal places, because ImmobilienScout24 rounds them to two:
+  `thermal_characteristic = 95.555` would come back as `95.56`, so the plan refuses it. The same holds for every
+  price, area and number of rooms; the coordinates are exempt.
 
 ## Publishing
 
@@ -197,6 +241,14 @@ when an update leaves the contact out, and the provider never sent one, so a con
 on the next `terraform apply` that changed the listing. The resource now sends the listing's contact on every
 update: the configured `contact_id`, or, without one, the contact the listing already has.
 
+**Changed: `immobilienscout24_apartment_rent` manages the energy certificate.** From v0.2.0 on, the resource
+manages the energy certificate and the energy values of the building (`energy_certificate`, `construction_year`,
+`heating_type`, `energy_sources`, `building_energy_rating_type`, `thermal_characteristic` and
+`energy_consumption_contains_warm_water`). For a listing whose energy data was set outside Terraform, the first
+plan after upgrading shows an in-place update that would remove it: add the energy attributes to the configuration
+before applying. `energy_sources` and `energy_consumption_contains_warm_water` are filled in from the API on refresh
+and cause no change on their own.
+
 ## Attachments
 
 Pictures and PDF documents are uploaded from local files; links point anywhere on the web:
@@ -265,12 +317,13 @@ resource "immobilienscout24_attachment_link" "video" {
   run against the sandbox; see [Development](#development).
 - **Publish requests wait for each other within one provider configuration.** Two provider configurations (for
   example aliases) for the same account can still publish in parallel.
-- **Apartment rentals only.** Other real estate types (houses, apartments for sale, commercial) are not supported.
-  Importing an object of another type fails with an error rather than misreading it.
-- **Partial field coverage.** The resource models the mandatory fields and the common optional ones. Updates are
-  full replacements on the API side, so fields it does not model (energy certificate and so on) may be reset when
-  Terraform updates a listing that was edited elsewhere. The listing's contact is kept. Attachments are resources
-  of their own, apart from the listing.
+- **Apartments and houses only.** The four listing types for rent and for sale are supported; other real estate
+  types, such as plots and commercial ones, are not. Importing a listing into a resource of another type fails with
+  an error rather than misreading it.
+- **Partial field coverage.** The listing resources model the mandatory fields, the energy certificate and the
+  common optional fields. Updates are full replacements on the API side, so fields they do not model (the
+  condition, the number of bedrooms and so on) may be reset when Terraform updates a listing that was edited
+  elsewhere. The listing's contact is kept. Attachments are resources of their own, apart from the listing.
 - **No streaming videos, and no attachment order.** Videos uploaded to ImmobilienScout24 are not supported; a link
   to a video is. The order of pictures and PDF documents is left to ImmobilienScout24, except for the title
   picture.
@@ -292,7 +345,10 @@ make generate  # regenerate docs/ from the schema and examples/
 The acceptance tests start an in-process fake of the API that checks the OAuth signature, the documented headers,
 and the element order of every request body against the live XSD in `immobilienscout24/testdata/` (for contacts,
 against the order of the documented examples, which that XSD predates, and for attachments, against that XSD with
-the newer `externalCheckSum` added), and that fails publish requests which overlap. It mirrors the contact
+the newer `externalCheckSum` added), and that fails publish requests which overlap. It mirrors the listing
+behaviour observed on the sandbox for all four listing types, including the fields the sandbox fills in, the
+rounding of decimals, the energy rules and the fields it derives; a test replays requests recorded on the sandbox
+(`immobilienscout24/testdata/sandbox/`) and compares the fake's answers with the sandbox's. It mirrors the contact
 behaviour observed on the sandbox, including the default contact rules, and the attachment behaviour: multipart
 uploads, the schema errors of the metadata, the titles it fills in, and the title picture rules. The tests
 need a `terraform` or `tofu` binary but no credentials.
@@ -310,6 +366,10 @@ TF_ACC=1 IMMOBILIENSCOUT24_LIVE=1 \
   IMMOBILIENSCOUT24_ACCESS_TOKEN=... IMMOBILIENSCOUT24_ACCESS_TOKEN_SECRET=... \
   go test ./immobilienscout24 -run TestAccApartmentRent_liveSandbox -v
 ```
+
+Four more live tests, for an apartment for sale, a house for rent, a house for sale and the energy attributes of an
+apartment for rent, each create a listing, update, import and destroy it, and check on the sandbox that it is gone.
+They set no contact, so each listing shows the default contact. `-run _liveSandbox` runs all five live tests.
 
 ## License
 

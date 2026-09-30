@@ -3,14 +3,14 @@
 page_title: "immobilienscout24_contact Resource - immobilienscout24"
 subcategory: ""
 description: |-
-  A contact address (common:realtorContactDetail) in the ImmobilienScout24 account of the access token. A listing shows one contact: point an immobilienscout24_apartment_rent at this one with contact_id.
+  A contact address (common:realtorContactDetail) in the ImmobilienScout24 account of the access token. A listing shows one contact: point a listing resource, such as immobilienscout24_apartment_rent, at this one with contact_id.
   The API treats every update as a full replacement, so the fields this resource does not model are reset when Terraform updates the contact: company, officeHours, portraitUrl, clickOutUrl, localPartnerContact and businessCardContact. ImmobilienScout24 asks accounts that booked Branchenbuch or Image Boost to send businessCardContact, so do not manage such a business card contact with this resource.
   Every account has exactly one default contact, which ImmobilienScout24 uses for listings without a contact; default_contact explains how to move it. Destroying a contact moves the listings that use it to the default contact. ImmobilienScout24 refuses to delete the default contact itself.
 ---
 
 # immobilienscout24_contact (Resource)
 
-A contact address (`common:realtorContactDetail`) in the ImmobilienScout24 account of the access token. A listing shows one contact: point an `immobilienscout24_apartment_rent` at this one with `contact_id`.
+A contact address (`common:realtorContactDetail`) in the ImmobilienScout24 account of the access token. A listing shows one contact: point a listing resource, such as `immobilienscout24_apartment_rent`, at this one with `contact_id`.
 
 The API treats every update as a full replacement, so the fields this resource does not model are reset when Terraform updates the contact: `company`, `officeHours`, `portraitUrl`, `clickOutUrl`, `localPartnerContact` and `businessCardContact`. ImmobilienScout24 asks accounts that booked Branchenbuch or Image Boost to send `businessCardContact`, so do not manage such a business card contact with this resource.
 

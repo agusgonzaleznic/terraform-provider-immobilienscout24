@@ -70,7 +70,7 @@ func (m *contactModel) toDocument(makeDefault bool) *contactDocument {
 }
 
 // contactFromDocument maps a GET response onto the model. The sandbox returns
-// every field as it was sent (observed 2026-09-29), so, unlike an apartment,
+// every field as it was sent (observed 2026-09-29), so, unlike a listing,
 // nothing is compared with a prior value.
 func contactFromDocument(id string, doc *contactDocument) *contactModel {
 	m := &contactModel{

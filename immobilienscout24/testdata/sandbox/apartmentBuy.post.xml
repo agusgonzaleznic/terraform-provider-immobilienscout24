@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<realestates:apartmentBuy xmlns:realestates="http://rest.immobilienscout24.de/schema/offer/realestates/1.0" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <title>anonymized</title>
+  <address>
+    <street>Invalidenstrasse</street>
+    <houseNumber>65</houseNumber>
+    <postcode>10557</postcode>
+    <city>Berlin</city>
+  </address>
+  <showAddress>true</showAddress>
+  <price>
+    <value>99000</value>
+    <currency>EUR</currency>
+  </price>
+  <livingSpace>50</livingSpace>
+  <numberOfRooms>2</numberOfRooms>
+  <courtage>
+    <hasCourtage>YES</hasCourtage>
+    <courtage>7,14%</courtage>
+  </courtage>
+</realestates:apartmentBuy>

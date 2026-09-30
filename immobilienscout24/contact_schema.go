@@ -162,8 +162,8 @@ func (keepDefaultContactFlag) PlanModifyBool(_ context.Context, req planmodifier
 func contactSchema() schema.Schema {
 	return schema.Schema{
 		MarkdownDescription: "A contact address (`common:realtorContactDetail`) in the ImmobilienScout24 account of the " +
-			"access token. A listing shows one contact: point an `immobilienscout24_apartment_rent` at this one with " +
-			"`contact_id`.\n\n" +
+			"access token. A listing shows one contact: point a listing resource, such as " +
+			"`immobilienscout24_apartment_rent`, at this one with `contact_id`.\n\n" +
 			"The API treats every update as a full replacement, so the fields this resource does not model are reset " +
 			"when Terraform updates the contact: `company`, `officeHours`, `portraitUrl`, `clickOutUrl`, " +
 			"`localPartnerContact` and `businessCardContact`. ImmobilienScout24 asks accounts that booked Branchenbuch " +

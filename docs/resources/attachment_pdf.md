@@ -30,7 +30,7 @@ resource "immobilienscout24_attachment_pdf" "floor_plan" {
 ### Required
 
 - `file` (String) Path of the local file, for example `"${path.module}/files/floor-plan.pdf"`. It is read at plan time and must exist then, and must not change before the apply: Terraform then stops with "Provider produced inconsistent final plan" and nothing is uploaded. Once the attachment is uploaded, a missing file keeps it as it is, with a warning, so that a destroy still works. Only its content counts, see `file_sha256`: a new path to the same content updates the attachment in place, without an upload. ImmobilienScout24 does not return the file, so an imported attachment needs `file` in its configuration like any other; the import leaves it empty in the state until the next apply.
-- `real_estate_id` (String) The scout object id of the listing, for example `immobilienscout24_apartment_rent.example.id`. Changing it forces a new PDF document.
+- `real_estate_id` (String) The scout object id of the listing: the `id` of any listing resource, for example `immobilienscout24_apartment_rent.example.id`. Changing it forces a new PDF document.
 
 ### Optional
 

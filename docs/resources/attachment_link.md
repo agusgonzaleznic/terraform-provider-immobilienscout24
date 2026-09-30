@@ -25,7 +25,7 @@ resource "immobilienscout24_attachment_link" "video" {
 
 ### Required
 
-- `real_estate_id` (String) The scout object id of the listing, for example `immobilienscout24_apartment_rent.example.id`. Changing it forces a new link.
+- `real_estate_id` (String) The scout object id of the listing: the `id` of any listing resource, for example `immobilienscout24_apartment_rent.example.id`. Changing it forces a new link.
 - `url` (String) The URL (`url`), `http` or `https`, at most 2000 characters.
 
 ### Optional

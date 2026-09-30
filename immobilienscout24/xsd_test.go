@@ -12,6 +12,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -41,7 +42,8 @@ func (n *xsdNode) is(local string) bool {
 // xsdElement is one element of a flattened xs:sequence or xs:all.
 type xsdElement struct {
 	Name     string
-	Type     string // the type attribute as written, e.g. "xs:double"
+	Type     string   // the type attribute as written, e.g. "xs:double"
+	TypeName xml.Name // Type resolved to its namespace; zero without a type attribute
 	Optional bool
 	Multiple bool
 }
@@ -54,6 +56,8 @@ type xsdType struct {
 
 type xsdSchemas struct {
 	types map[string]xsdType // key: namespace + " " + name
+	// enums holds the values of every simple type that is an enumeration.
+	enums map[string][]string // key: namespace + " " + name
 }
 
 var (
@@ -75,7 +79,7 @@ func liveXSD(t testing.TB) *xsdSchemas {
 			loadXSDErr = err
 			return
 		}
-		s := &xsdSchemas{types: map[string]xsdType{}}
+		s := &xsdSchemas{types: map[string]xsdType{}, enums: map[string][]string{}}
 		var walk func(n *xsdNode)
 		walk = func(n *xsdNode) {
 			if n.is("schema") {
@@ -90,6 +94,11 @@ func liveXSD(t testing.TB) *xsdSchemas {
 					c := &n.Children[i]
 					if c.is("complexType") && c.attr("name") != "" {
 						s.types[tns+" "+c.attr("name")] = xsdType{node: c, prefixes: prefixes, tns: tns}
+					}
+					if c.is("simpleType") && c.attr("name") != "" {
+						if values := enumeration(c); len(values) > 0 {
+							s.enums[tns+" "+c.attr("name")] = values
+						}
 					}
 				}
 				return
@@ -149,15 +158,43 @@ func (s *xsdSchemas) elements(namespace, name string) ([]xsdElement, error) {
 			if ref := e.attr("ref"); name == "" && ref != "" {
 				_, name = typ.resolve(ref)
 			}
-			out = append(out, xsdElement{
+			el := xsdElement{
 				Name:     name,
 				Type:     e.attr("type"),
 				Optional: e.attr("minOccurs") == "0",
 				Multiple: e.attr("maxOccurs") != "" && e.attr("maxOccurs") != "1",
-			})
+			}
+			if el.Type != "" {
+				el.TypeName.Space, el.TypeName.Local = typ.resolve(el.Type)
+			}
+			out = append(out, el)
 		}
 	}
 	return out, nil
+}
+
+// enumeration returns the values of a simple type that restricts its base to
+// an enumeration, and nil for any other simple type.
+func enumeration(simpleType *xsdNode) []string {
+	var values []string
+	for i := range simpleType.Children {
+		r := &simpleType.Children[i]
+		if !r.is("restriction") {
+			continue
+		}
+		for j := range r.Children {
+			if e := &r.Children[j]; e.is("enumeration") {
+				values = append(values, e.attr("value"))
+			}
+		}
+	}
+	return values
+}
+
+// enumeration returns the values of an enumerated simple type, and nil when
+// the type is not one, such as xs:string.
+func (s *xsdSchemas) enumeration(name xml.Name) []string {
+	return s.enums[name.Space+" "+name.Local]
 }
 
 func (t xsdType) resolve(qname string) (string, string) {
@@ -225,5 +262,49 @@ func TestLiveXSDApartmentRentSequence(t *testing.T) {
 	}
 	if names[0] != "externalId" || names[len(names)-1] != "courtage" {
 		t.Errorf("sequence starts with %s and ends with %s", names[0], names[len(names)-1])
+	}
+}
+
+func TestLiveXSDListingSequences(t *testing.T) {
+	for typ, want := range map[string]struct {
+		count    int
+		required string
+	}{
+		"ApartmentBuy": {61, "title,address,showAddress,livingSpace,numberOfRooms,courtage"},
+		"HouseRent":    {59, "title,address,showAddress,livingSpace,plotArea,numberOfRooms,courtage,buildingType,baseRent"},
+		"HouseBuy":     {56, "title,address,showAddress,buildingType,livingSpace,plotArea,numberOfRooms,courtage"},
+	} {
+		els := mustElements(t, realEstatesNamespace, typ)
+		var required []string
+		for _, e := range els {
+			if !e.Optional {
+				required = append(required, e.Name)
+			}
+		}
+		if len(els) != want.count || strings.Join(required, ",") != want.required {
+			t.Errorf("%s has %d elements, required %v; want %d, required %s", typ, len(els), required, want.count, want.required)
+		}
+	}
+}
+
+// buildingFields relies on every listing type having the same elements, in
+// the same order, from energyCertificate to numberOfFloors, where it starts at
+// position 24 in the apartment types, 27 in HouseRent and 23 in HouseBuy.
+func TestLiveXSDBuildingBlockIsShared(t *testing.T) {
+	var first []string
+	for typ, start := range map[string]int{"ApartmentRent": 24, "ApartmentBuy": 24, "HouseRent": 27, "HouseBuy": 23} {
+		var names []string
+		for _, e := range mustElements(t, realEstatesNamespace, typ) {
+			names = append(names, e.Name)
+		}
+		from, to := slices.Index(names, "energyCertificate"), slices.Index(names, "numberOfFloors")
+		if from+1 != start || to < from {
+			t.Fatalf("%s: energyCertificate is at %d, numberOfFloors at %d", typ, from+1, to+1)
+		}
+		if first == nil {
+			first = names[from : to+1]
+		} else if !slices.Equal(names[from:to+1], first) {
+			t.Errorf("%s: %v, want %v", typ, names[from:to+1], first)
+		}
 	}
 }

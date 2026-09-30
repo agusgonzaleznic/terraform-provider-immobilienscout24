@@ -42,7 +42,7 @@ resource "immobilienscout24_publication" "homepage" {
 ### Required
 
 - `channel_id` (String) The publish channel: `10000` for ImmobilienScout24 (www.immobilienscout24.de) or `10001` for the realtor's own homepage. Publishing on `10000` in production uses paid contingent. Changing it forces a new publication.
-- `real_estate_id` (String) The scout object id of the listing, for example `immobilienscout24_apartment_rent.example.id`. Changing it forces a new publication.
+- `real_estate_id` (String) The scout object id of the listing: the `id` of any listing resource, for example `immobilienscout24_apartment_rent.example.id`. Changing it forces a new publication.
 
 ### Read-Only
 
