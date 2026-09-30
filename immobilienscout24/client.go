@@ -74,11 +74,18 @@ var defaultContactUndeletable = regexp.MustCompile(`(?i)default contact can ?not
 // Client talks to the ImmobilienScout24 Import/Export API.
 type Client struct {
 	httpClient *http.Client
-	baseURL    string
-	userAgent  string
+	// uploadClient signs like httpClient but waits longer; see uploadTimeout.
+	uploadClient *http.Client
+	baseURL      string
+	userAgent    string
 
 	// publishMu makes publish requests wait for each other; see Publish.
 	publishMu sync.Mutex
+
+	// titleMu guards titlePictures, the listings whose title picture this
+	// client has set; see claimTitlePicture.
+	titleMu       sync.Mutex
+	titlePictures map[string]bool
 }
 
 // NewClient returns a client that signs every request with OAuth 1.0a
@@ -86,16 +93,23 @@ type Client struct {
 func NewClient(baseURL, consumerKey, consumerSecret, accessToken, accessTokenSecret, userAgent string) *Client {
 	config := oauth1.NewConfig(consumerKey, consumerSecret)
 	token := oauth1.NewToken(accessToken, accessTokenSecret)
+	httpClient := newHTTPClient(config, token)
 	return &Client{
-		httpClient: newHTTPClient(config, token),
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		userAgent:  userAgent,
+		httpClient:    httpClient,
+		uploadClient:  &http.Client{Transport: httpClient.Transport, CheckRedirect: httpClient.CheckRedirect, Timeout: uploadTimeout},
+		baseURL:       strings.TrimRight(baseURL, "/"),
+		userAgent:     userAgent,
+		titlePictures: map[string]bool{},
 	}
 }
 
 // requestTimeout bounds every API call, so a hung connection cannot stall a
 // Terraform run indefinitely.
 const requestTimeout = 60 * time.Second
+
+// uploadTimeout bounds an upload instead: a file may have up to 50 MB, which
+// takes minutes on a slow connection.
+const uploadTimeout = 10 * time.Minute
 
 // newHTTPClient signs requests and never follows redirects: the documented API
 // does not redirect, and following one would send a freshly signed request to
@@ -319,7 +333,17 @@ type response struct {
 	body     []byte
 }
 
+// do sends a request with an XML body, or without a body when body is nil.
 func (c *Client) do(ctx context.Context, method, path string, body []byte) (*response, error) {
+	contentType := ""
+	if body != nil {
+		contentType = mediaTypeXML
+	}
+	return c.send(ctx, c.httpClient, method, path, contentType, body)
+}
+
+// send sends a request through client; contentType is the media type of body.
+func (c *Client) send(ctx context.Context, client *http.Client, method, path, contentType string, body []byte) (*response, error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -330,15 +354,15 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) (*res
 	}
 	// Basic Principles: reads send Accept, writes send Accept and Content-Type.
 	req.Header.Set("Accept", mediaTypeXML)
-	if body != nil {
-		req.Header.Set("Content-Type", mediaTypeXML)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	if c.userAgent != "" {
 		req.Header.Set("User-Agent", c.userAgent)
 	}
 
 	tflog.Debug(ctx, "ImmobilienScout24 API request", map[string]any{"method": method, "path": path})
-	httpResp, err := c.httpClient.Do(req)
+	httpResp, err := client.Do(req)
 	if err != nil {
 		var urlErr *url.Error
 		if errors.As(err, &urlErr) {

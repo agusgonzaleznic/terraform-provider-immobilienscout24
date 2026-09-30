@@ -108,8 +108,11 @@ func emailAddress(desc string, required bool) schema.StringAttribute {
 	}
 }
 
-// onlyTrue rejects default_contact = false, which ImmobilienScout24 ignores.
-type onlyTrue struct{}
+// onlyTrue rejects false for a flag that ImmobilienScout24 ignores when it is
+// false, and reports it with summary and detail.
+type onlyTrue struct {
+	summary, detail string
+}
 
 func (onlyTrue) Description(_ context.Context) string {
 	return "value must be true; leave the attribute out otherwise"
@@ -117,15 +120,20 @@ func (onlyTrue) Description(_ context.Context) string {
 
 func (v onlyTrue) MarkdownDescription(ctx context.Context) string { return v.Description(ctx) }
 
-func (onlyTrue) ValidateBool(_ context.Context, req validator.BoolRequest, resp *validator.BoolResponse) {
+func (v onlyTrue) ValidateBool(_ context.Context, req validator.BoolRequest, resp *validator.BoolResponse) {
 	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() || req.ConfigValue.ValueBool() {
 		return
 	}
-	resp.Diagnostics.AddAttributeError(req.Path, "default_contact cannot be false",
-		"An account always has exactly one default contact, and ImmobilienScout24 ignores an update that sets "+
-			"defaultContact to false. To move the default, set default_contact = true on another "+
-			"immobilienscout24_contact (or choose another default contact on the website), and leave "+
-			"default_contact out of this one.")
+	resp.Diagnostics.AddAttributeError(req.Path, v.summary, v.detail)
+}
+
+// defaultContactOnlyTrue rejects default_contact = false.
+var defaultContactOnlyTrue = onlyTrue{
+	summary: "default_contact cannot be false",
+	detail: "An account always has exactly one default contact, and ImmobilienScout24 ignores an update that sets " +
+		"defaultContact to false. To move the default, set default_contact = true on another " +
+		"immobilienscout24_contact (or choose another default contact on the website), and leave " +
+		"default_contact out of this one.",
 }
 
 // keepDefaultContactFlag is UseStateForUnknown for default_contact, except on
@@ -225,7 +233,7 @@ func contactSchema() schema.Schema {
 				Optional:      true,
 				Computed:      true,
 				PlanModifiers: []planmodifier.Bool{keepDefaultContactFlag{}},
-				Validators:    []validator.Bool{onlyTrue{}},
+				Validators:    []validator.Bool{defaultContactOnlyTrue},
 			},
 			"external_id": schema.StringAttribute{
 				MarkdownDescription: "Your own id for the contact (`externalId`), unique within the account.",
