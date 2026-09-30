@@ -9,12 +9,15 @@ package immobilienscout24
 //   - Accept on every request and Content-Type on writes, as documented;
 //   - an OAuth 1.0a HMAC-SHA1 Authorization header whose signature verifies
 //     against the test credentials;
-//   - a request root of realestates:apartmentRent in the documented namespace,
-//     unqualified children, and child order and required elements checked
-//     against the live XSD fixture (see xsd_test.go), not a hand-written list.
+//   - a request root of one of the four listing types in the documented
+//     namespace, unqualified children, and child order and required elements
+//     checked against the live XSD fixture (see xsd_test.go), not a
+//     hand-written list.
 //
 // Behaviour the documentation does not pin down is simulated and marked
-// "simulated" below. The publish resource is in fake_api_publish_test.go, the
+// "simulated" below. The listing types, with what the sandbox fills in, are in
+// fake_api_listing_test.go, and their energy fields in fake_api_energy_test.go.
+// The publish resource is in fake_api_publish_test.go, the
 // contact resource and the contact of a real estate in
 // fake_api_contact_test.go, the attachments in fake_api_attachment_test.go,
 // the OAuth check in fake_oauth_test.go, and the XML helpers in
@@ -70,8 +73,8 @@ type fakeAPI struct {
 	t      testing.TB
 	server *httptest.Server
 
-	topOrder     []xsdElement
-	addressOrder []xsdElement
+	// listing holds the listing types, see fake_api_listing_test.go.
+	listing fakeListingSchema
 
 	mu       sync.Mutex
 	nextID   int
@@ -101,8 +104,7 @@ func newFakeAPI(t testing.TB) *fakeAPI {
 		pub:              fakePublishState{publications: map[string]fakePublication{}},
 		contacts:         newFakeContactState(t),
 		att:              newFakeAttachmentState(t),
-		topOrder:         mustElements(t, realEstatesNamespace, "ApartmentRent"),
-		addressOrder:     mustElements(t, commonNamespace, "Wgs84Address"),
+		listing:          newFakeListingSchema(t),
 	}
 	f.server = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.server.Close)
@@ -203,11 +205,12 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id, isItem := strings.CutPrefix(r.URL.Path, fakeCollectionPath)
+	newSources := r.URL.Query().Get(fakeNewEnergySourcesParam) == "true"
 	switch {
 	case r.URL.Path == fakeCollectionPath && r.Method == http.MethodPost:
-		f.create(w, body)
+		f.create(w, body, newSources)
 	case isItem && id != "" && !strings.Contains(id, "/"):
-		f.item(w, r.Method, id, body)
+		f.item(w, r.Method, id, body, newSources)
 	case r.URL.Path == fakePublishPath || strings.HasPrefix(r.URL.Path, fakePublishPath+"/"):
 		f.handlePublish(w, r.Method, r.URL.Path, body)
 	case r.URL.Path == fakeContactPath || strings.HasPrefix(r.URL.Path, fakeContactPath+"/"):
@@ -217,8 +220,13 @@ func (f *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (f *fakeAPI) create(w http.ResponseWriter, body []byte) {
+// create inserts a listing; newSources tells whether the request carries the
+// query parameter for the newer energy sources.
+func (f *fakeAPI) create(w http.ResponseWriter, body []byte, newSources bool) {
 	obj, err := f.validate(body)
+	if err == nil && !newSources {
+		err = checkNewEnergySources(obj)
+	}
 	if err != nil {
 		writeValidationError(w, err)
 		return
@@ -243,7 +251,8 @@ func (f *fakeAPI) create(w http.ResponseWriter, body []byte) {
 </common:messages>`)
 }
 
-func (f *fakeAPI) item(w http.ResponseWriter, method, id string, body []byte) {
+// item serves one listing; newSources as for create.
+func (f *fakeAPI) item(w http.ResponseWriter, method, id string, body []byte, newSources bool) {
 	f.mu.Lock()
 	obj, exists := f.objects[id]
 	f.mu.Unlock()
@@ -254,9 +263,16 @@ func (f *fakeAPI) item(w http.ResponseWriter, method, id string, body []byte) {
 
 	switch method {
 	case http.MethodGet:
-		writeRaw(w, http.StatusOK, f.render(id, obj))
+		writeRaw(w, http.StatusOK, f.renderListing(id, obj, newSources))
 	case http.MethodPut:
 		updated, err := f.validate(body)
+		if err == nil && updated.Name != obj.Name {
+			// Simulated: whether a PUT can change the type of a listing was not observed.
+			err = fmt.Errorf("fake API: listing %s is a realestates:%s, not a realestates:%s", id, obj.Name, updated.Name)
+		}
+		if err == nil && !newSources {
+			err = checkNewEnergySources(updated)
+		}
 		if err != nil {
 			writeValidationError(w, err)
 			return
@@ -303,13 +319,9 @@ func (f *fakeAPI) store(id string, obj *xnode) {
 	if obj.child("externalId") == nil {
 		obj.Children = append([]*xnode{{Name: "externalId", Text: id}}, obj.Children...)
 	}
-	// The sandbox fills these in when a request leaves them out (observed
-	// 2026-09-29); GET returns them like any other field.
-	for _, d := range sandboxDefaults {
-		if obj.child(d[0]) == nil {
-			obj.Children = append(obj.Children, &xnode{Name: d[0], Text: d[1]})
-		}
-	}
+	// The sandbox fills in what a request leaves out (observed 2026-09-29 and
+	// 2026-09-30); GET returns it like any other field.
+	f.completeListing(obj)
 	// The sandbox geocodes an address sent without coordinates.
 	if a := obj.child("address"); a != nil && a.child("wgs84Coordinate") == nil {
 		a.Children = append(a.Children, &xnode{Name: "wgs84Coordinate", Children: []*xnode{
@@ -326,95 +338,4 @@ func (f *fakeAPI) store(id string, obj *xnode) {
 		}
 	}
 	f.objects[id] = obj
-}
-
-// validate parses a request body and checks it against the XSD fixture.
-func (f *fakeAPI) validate(body []byte) (*xnode, error) {
-	root, err := parseRequest(body, realEstatesNamespace, "apartmentRent")
-	if err != nil {
-		return nil, err
-	}
-	if err := checkOrder("apartmentRent", childNames(root), f.topOrder); err != nil {
-		return nil, err
-	}
-	if a := root.child("address"); a != nil {
-		if err := checkOrder("address", childNames(a), f.addressOrder); err != nil {
-			return nil, err
-		}
-	}
-	if c := root.child("courtage"); c != nil && c.child("hasCourtage") == nil {
-		return nil, fmt.Errorf("courtage: required element <hasCourtage> is missing")
-	}
-	if err := f.checkListingContact(root); err != nil {
-		return nil, err
-	}
-	for _, c := range root.Children {
-		c.Text = strings.TrimSpace(c.Text)
-	}
-	return root, nil
-}
-
-// render serialises an object the way the Retrieve page shows it: the id as a
-// root attribute, plus server-populated elements the client never sent.
-// Simulated: doubles are rendered with two decimals, like 100000.00 in the
-// documented insert example, to prove that formatting causes no diff.
-func (f *fakeAPI) render(id string, obj *xnode) string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` + "\n")
-	b.WriteString(`<realestates:apartmentRent xmlns:ns2="http://rest.immobilienscout24.de/schema/platform/gis/1.0" ` +
-		`xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:common="http://rest.immobilienscout24.de/schema/common/1.0" ` +
-		`xmlns:realestates="` + realEstatesNamespace + `" id="` + id + `">`)
-
-	types := map[string]string{}
-	for _, e := range f.topOrder {
-		types[e.Name] = e.Type
-	}
-	for _, c := range obj.Children {
-		out := *c
-		if types[c.Name] == "xs:double" {
-			if v, err := strconv.ParseFloat(c.Text, 64); err == nil {
-				out.Text = strconv.FormatFloat(v, 'f', 2, 64)
-			}
-		}
-		switch c.Name {
-		case "address":
-			out.Children = append(append([]*xnode{}, c.Children...), &xnode{Name: "geoHierarchy", Children: []*xnode{
-				{Name: "city", Children: []*xnode{{Name: "geoCodeId", Text: "1"}}},
-			}})
-		case "showAddress":
-			// The documented GET example carries attachments before showAddress.
-			writeNode(&b, &xnode{Name: "attachments", Attrs: []xml.Attr{{
-				Name:  xml.Name{Local: "xlink:href"},
-				Value: f.BaseURL() + "/offer/v1.0/user/me/realestate/" + id + "/attachment",
-			}}})
-		}
-		writeNode(&b, &out)
-		switch c.Name {
-		case "title":
-			writeNode(&b, &xnode{Name: "creationDate", Text: "2026-09-29T10:00:00.000+02:00"})
-			writeNode(&b, &xnode{Name: "lastModificationDate", Text: "2026-09-29T10:00:00.000+02:00"})
-		case "address":
-			writeNode(&b, &xnode{Name: "realEstateState", Text: f.realEstateState(id)})
-		case "showAddress":
-			f.writeListingContact(&b, id)
-			f.writePublishChannels(&b, id)
-		}
-	}
-	b.WriteString(`</realestates:apartmentRent>`)
-	return b.String()
-}
-
-// sandboxDefaults are the values the live sandbox sets for fields a create
-// request omits.
-var sandboxDefaults = [][2]string{
-	{"apartmentType", "NO_INFORMATION"},
-	{"lift", "false"},
-	{"cellar", "NOT_APPLICABLE"},
-	{"heatingCostsInServiceCharge", "NOT_APPLICABLE"},
-	{"petsAllowed", "NO_INFORMATION"},
-	{"builtInKitchen", "false"},
-	{"balcony", "false"},
-	{"garden", "false"},
 }

@@ -55,7 +55,7 @@ type attachmentDocument struct {
 // attachmentRequest serialises as the documented request root,
 // <common:attachment xsi:type="common:Picture" xmlns:common="..."
 // xmlns:xlink="..." xmlns:xsi="...">, with the literal-prefix technique of
-// apartmentRentRequest.
+// marshalListing.
 type attachmentRequest struct {
 	XMLName     xml.Name `xml:"common:attachment"`
 	Type        string   `xml:"xsi:type,attr"`

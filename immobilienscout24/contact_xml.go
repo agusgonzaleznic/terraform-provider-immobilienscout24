@@ -50,7 +50,7 @@ type contactDocument struct {
 
 // contactRequest serialises as the documented request root,
 // <common:realtorContactDetail xmlns:common="..." xmlns:xlink="...">, with the
-// literal-prefix technique of apartmentRentRequest.
+// literal-prefix technique of marshalListing.
 type contactRequest struct {
 	XMLName     xml.Name `xml:"common:realtorContactDetail"`
 	XMLNSCommon string   `xml:"xmlns:common,attr"`

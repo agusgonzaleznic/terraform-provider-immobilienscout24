@@ -179,7 +179,7 @@ func attachmentIDAttribute() schema.StringAttribute {
 
 func attachmentRealEstateIDAttribute(noun string) schema.StringAttribute {
 	return schema.StringAttribute{
-		MarkdownDescription: "The scout object id of the listing, for example " +
+		MarkdownDescription: "The scout object id of the listing: the `id` of any listing resource, for example " +
 			"`immobilienscout24_apartment_rent.example.id`. Changing it forces a new " + noun + ".",
 		Required:      true,
 		PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},

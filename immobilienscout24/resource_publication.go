@@ -71,8 +71,8 @@ func (r *publicationResource) Schema(_ context.Context, _ resource.SchemaRequest
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"real_estate_id": schema.StringAttribute{
-				MarkdownDescription: "The scout object id of the listing, for example " +
-					"`immobilienscout24_apartment_rent.example.id`. Changing it forces a new publication.",
+				MarkdownDescription: "The scout object id of the listing: the `id` of any listing resource, for " +
+					"example `immobilienscout24_apartment_rent.example.id`. Changing it forces a new publication.",
 				Required:      true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 				Validators:    idValidators,

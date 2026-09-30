@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
@@ -207,16 +208,25 @@ func TestGetRejectsOtherRealEstateTypes(t *testing.T) {
 func fullModel() *apartmentRentModel {
 	s, b, f := types.StringValue, types.BoolValue, types.Float64Value
 	return &apartmentRentModel{
-		ExternalID: s("tf-ext-1"), Title: s("anonymized"),
-		Address: &addressModel{Street: s("Invalidenstrasse"), HouseNumber: s("65"), Postcode: s("10557"), City: s("Berlin"),
-			Coordinates: &coordinatesModel{Latitude: f(52.53), Longitude: f(13.38)}},
-		ShowAddress: b(true), ContactID: s(fakeDefaultContactID),
-		DescriptionNote: s("d"), FurnishingNote: s("f"), LocationNote: s("l"), OtherNote: s("o"),
-		ApartmentType: s("APARTMENT"), Floor: types.Int64Value(2), Lift: b(true), Cellar: s("YES"), FreeFrom: s("sofort"),
-		NumberOfFloors: types.Int64Value(5), BaseRent: f(900.5), TotalRent: f(1200), ServiceCharge: f(200), Deposit: s("3 Kaltmieten"),
+		listingModel: listingModel{
+			ExternalID: s("tf-ext-1"), Title: s("anonymized"),
+			Address: &addressModel{Street: s("Invalidenstrasse"), HouseNumber: s("65"), Postcode: s("10557"), City: s("Berlin"),
+				Coordinates: &coordinatesModel{Latitude: f(52.53), Longitude: f(13.38)}},
+			ShowAddress: b(true), ContactID: s(fakeDefaultContactID),
+			DescriptionNote: s("d"), FurnishingNote: s("f"), LocationNote: s("l"), OtherNote: s("o"),
+			Cellar: s("YES"), FreeFrom: s("sofort"), NumberOfFloors: types.Int64Value(5),
+			Courtage: &courtageModel{HasCourtage: s("YES"), Courtage: s("2,38 Monatsmieten"), CourtageNote: s("n")},
+			EnergyCertificate: &energyCertificateModel{Availability: s("AVAILABLE"), CreationDate: s("FROM_01_MAY_2014"),
+				EfficiencyClass: s("B")},
+			ConstructionYear: types.Int64Value(1990), HeatingType: s("CENTRAL_HEATING"),
+			EnergySources:            types.SetValueMust(types.StringType, []attr.Value{s("GAS")}),
+			BuildingEnergyRatingType: s("ENERGY_CONSUMPTION"), ThermalCharacteristic: f(95.5),
+			EnergyConsumptionContainsWarmWater: s("NOT_APPLICABLE"),
+		},
+		ApartmentType: s("APARTMENT"), Floor: types.Int64Value(2), Lift: b(true),
+		BaseRent: f(900.5), TotalRent: f(1200), ServiceCharge: f(200), Deposit: s("3 Kaltmieten"),
 		HeatingCosts: f(99.5), HeatingCostsInServiceCharge: s("NO"), PetsAllowed: s("NEGOTIABLE"), LivingSpace: f(65.5),
 		NumberOfRooms: f(2.5), BuiltInKitchen: b(true), Balcony: b(false), Garden: b(false),
-		Courtage: &courtageModel{HasCourtage: s("YES"), Courtage: s("2,38 Monatsmieten"), CourtageNote: s("n")},
 	}
 }
 
@@ -265,8 +275,8 @@ func TestMarshalledOrderFollowsXSD(t *testing.T) {
 		t.Fatalf("%v\nsent: %v", err, names)
 	}
 	// Every modelled field must actually be on the wire.
-	if len(names) != 28 {
-		t.Fatalf("full model produced %d elements, want 28: %v", len(names), names)
+	if len(names) != 35 {
+		t.Fatalf("full model produced %d elements, want 35: %v", len(names), names)
 	}
 	// And the fake, which the acceptance tests rely on, must agree.
 	if _, err := newFakeAPI(t).validate(body); err != nil {

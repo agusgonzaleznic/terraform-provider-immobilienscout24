@@ -27,14 +27,19 @@ func (e errContactInvalid) Error() string {
 }
 
 // writeValidationError answers a refused real estate body: the observed 412
-// for an unknown contact, the simulated schema error otherwise.
+// ERROR_RESOURCE_VALIDATION for an unknown contact and for a broken rule of the
+// fields, the simulated schema error otherwise.
 func writeValidationError(w http.ResponseWriter, err error) {
 	var ci errContactInvalid
-	if errors.As(err, &ci) {
+	var ev errValidation
+	switch {
+	case errors.As(err, &ci):
 		writeMessages(w, http.StatusPreconditionFailed, codeResourceValidation, ci.Error())
-		return
+	case errors.As(err, &ev):
+		writeMessages(w, http.StatusPreconditionFailed, codeResourceValidation, ev.Error())
+	default:
+		writeMessages(w, http.StatusPreconditionFailed, "ERROR_COMMON_SCHEMA_VALIDATION_FAILED", err.Error())
 	}
-	writeMessages(w, http.StatusPreconditionFailed, "ERROR_COMMON_SCHEMA_VALIDATION_FAILED", err.Error())
 }
 
 // ListingContact returns the id of the contact of a real estate.

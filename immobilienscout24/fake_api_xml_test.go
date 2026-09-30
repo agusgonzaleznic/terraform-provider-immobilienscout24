@@ -8,12 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 )
 
-// parseRequest parses a request body whose root is {namespace}local and whose
-// other elements are unqualified, as the XSD declares them.
-func parseRequest(body []byte, namespace, local string) (*xnode, error) {
+// parseRequest parses a request body whose root is {namespace}local, for one
+// of locals, and whose other elements are unqualified, as the XSD declares them.
+func parseRequest(body []byte, namespace string, locals ...string) (*xnode, error) {
 	dec := xml.NewDecoder(strings.NewReader(string(body)))
 	var root *xnode
 	var stack []*xnode
@@ -28,8 +29,9 @@ func parseRequest(body []byte, namespace, local string) (*xnode, error) {
 		switch tok := tok.(type) {
 		case xml.StartElement:
 			if len(stack) == 0 {
-				if tok.Name.Space != namespace || tok.Name.Local != local {
-					return nil, fmt.Errorf("root element is {%s}%s, want {%s}%s", tok.Name.Space, tok.Name.Local, namespace, local)
+				if tok.Name.Space != namespace || !slices.Contains(locals, tok.Name.Local) {
+					return nil, fmt.Errorf("root element is {%s}%s, want {%s}%s", tok.Name.Space, tok.Name.Local,
+						namespace, strings.Join(locals, " or "))
 				}
 			} else if tok.Name.Space != "" {
 				return nil, fmt.Errorf("element <%s> is in namespace %q, the XSD declares unqualified elements", tok.Name.Local, tok.Name.Space)

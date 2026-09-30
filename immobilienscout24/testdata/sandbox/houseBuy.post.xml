@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<realestates:houseBuy xmlns:realestates="http://rest.immobilienscout24.de/schema/offer/realestates/1.0" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <title>anonymized</title>
+  <address>
+    <street>Invalidenstrasse</street>
+    <houseNumber>65</houseNumber>
+    <postcode>10557</postcode>
+    <city>Berlin</city>
+  </address>
+  <showAddress>true</showAddress>
+  <buildingType>CASTLE_MANOR_HOUSE</buildingType>
+  <price>
+    <value>750000</value>
+    <currency>EUR</currency>
+  </price>
+  <livingSpace>6250.00</livingSpace>
+  <plotArea>955000.00</plotArea>
+  <numberOfRooms>8</numberOfRooms>
+  <courtage>
+    <hasCourtage>YES</hasCourtage>
+    <courtage>7,14%</courtage>
+  </courtage>
+</realestates:houseBuy>

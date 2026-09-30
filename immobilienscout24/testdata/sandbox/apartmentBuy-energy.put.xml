@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<realestates:apartmentBuy xmlns:realestates="http://rest.immobilienscout24.de/schema/offer/realestates/1.0" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <title>anonymized</title>
+  <address>
+    <street>Invalidenstrasse</street>
+    <houseNumber>65</houseNumber>
+    <postcode>10557</postcode>
+    <city>Berlin</city>
+  </address>
+  <showAddress>true</showAddress>
+  <energyCertificate>
+    <energyCertificateAvailability>AVAILABLE</energyCertificateAvailability>
+    <energyCertificateCreationDate>FROM_01_MAY_2014</energyCertificateCreationDate>
+    <energyEfficiencyClass>B</energyEfficiencyClass>
+  </energyCertificate>
+  <constructionYear>1990</constructionYear>
+  <heatingTypeEnev2014>CENTRAL_HEATING</heatingTypeEnev2014>
+  <energySourcesEnev2014>
+    <energySourceEnev2014>GAS</energySourceEnev2014>
+  </energySourcesEnev2014>
+  <buildingEnergyRatingType>ENERGY_CONSUMPTION</buildingEnergyRatingType>
+  <thermalCharacteristic>95.5</thermalCharacteristic>
+  <price>
+    <value>99000</value>
+    <currency>EUR</currency>
+  </price>
+  <livingSpace>50</livingSpace>
+  <numberOfRooms>2</numberOfRooms>
+  <courtage>
+    <hasCourtage>YES</hasCourtage>
+    <courtage>7,14%</courtage>
+  </courtage>
+</realestates:apartmentBuy>
