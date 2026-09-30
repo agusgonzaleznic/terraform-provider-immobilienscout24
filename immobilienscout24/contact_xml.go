@@ -83,14 +83,14 @@ func marshalContact(doc *contactDocument) ([]byte, error) {
 func unmarshalContact(id string, body []byte) (*contactDocument, error) {
 	var resp contactResponse
 	if err := xml.NewDecoder(bytes.NewReader(body)).Decode(&resp); err != nil {
-		return nil, fmt.Errorf("decoding contact response: %w", err)
+		return nil, fmt.Errorf("decoding contact response: %s", errorText(err.Error()))
 	}
 	if resp.XMLName.Space != commonNamespace || resp.XMLName.Local != "realtorContactDetail" {
 		return nil, fmt.Errorf("expected a common:realtorContactDetail, the API returned <%s> in namespace %q",
 			resp.XMLName.Local, resp.XMLName.Space)
 	}
 	if resp.ID != "" && resp.ID != id {
-		return nil, fmt.Errorf("asked for contact %s, the API returned contact %s", id, resp.ID)
+		return nil, fmt.Errorf("asked for contact %s, the API returned contact %s", id, errorText(resp.ID))
 	}
 	return &contactDocument{ID: resp.ID, contactFields: resp.contactFields}, nil
 }

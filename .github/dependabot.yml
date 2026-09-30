@@ -1,9 +1,14 @@
 version: 2
+# Updates wait a week after their release, so that a compromised version is
+# more likely to be found and pulled before it gets here. Security updates do
+# not wait.
 updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       terraform-plugin:
         patterns:
@@ -12,6 +17,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:

@@ -321,3 +321,37 @@ func TestListingSchemaRejectsDuplicates(t *testing.T) {
 		}()
 	}
 }
+
+// A number from the API must be a finite number: strconv.ParseFloat also takes
+// NaN and the infinities, and types.Float64Value panics on a NaN. An integer
+// must fit an int64.
+func TestParserRejectsWhatIsNoNumber(t *testing.T) {
+	for _, raw := range []string{"NaN", "nan", "Inf", "+Inf", "-inf", "infinity", "-Infinity", "1e400", "abc"} {
+		p := &parser{}
+		if got := p.float64("baseRent", &raw, types.Float64Null()); !got.IsNull() || p.err == nil ||
+			!strings.Contains(p.err.Error(), "which is not a number") {
+			t.Errorf("float64(%q) = %v, error %v", raw, got, p.err)
+		}
+		p = &parser{}
+		if got := p.int64("floor", &raw); !got.IsNull() || p.err == nil || !strings.Contains(p.err.Error(), "which is not a number") {
+			t.Errorf("int64(%q) = %v, error %v", raw, got, p.err)
+		}
+	}
+	for raw, want := range map[string]string{
+		"4": "", "4.0": "", "-3": "", "-9223372036854775808": "",
+		"4.5": "which is not a whole number", "1e19": "out of the range", "-1e19": "out of the range",
+		"9.3e18": "out of the range",
+	} {
+		p := &parser{}
+		got := p.int64("floor", &raw)
+		if want == "" && (p.err != nil || got.IsNull()) || want != "" && (p.err == nil || !strings.Contains(p.err.Error(), want) || !got.IsNull()) {
+			t.Errorf("int64(%q) = %v, error %v, want %q", raw, got, p.err, want)
+		}
+	}
+	doc := fullModel().toDocument()
+	nan := "NaN"
+	doc.BaseRent = &nan
+	if _, err := doc.toModel("1", fullModel()); err == nil || !strings.Contains(err.Error(), `"NaN" for baseRent`) {
+		t.Errorf("a listing with the baseRent NaN: %v", err)
+	}
+}

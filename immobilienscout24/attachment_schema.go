@@ -103,18 +103,31 @@ func checkFile(name string, info os.FileInfo) error {
 	return nil
 }
 
-// fileSHA256 returns the SHA-256 of a file's content in lower-case hex. It
-// checks the file before opening it, since opening a FIFO or a device blocks,
-// and reads at most the 50 MB the API accepts.
-func fileSHA256(name string) (string, error) {
-	info, err := os.Stat(name)
+// openFile opens a local file once and runs checkFile on the opened
+// descriptor, so that the file checked is the file read. Checking the path
+// first and opening it after would leave a gap in which another process can
+// swap in a FIFO, whose open waits for a writer and hangs the plan or the
+// apply; openNonBlocking does not wait.
+func openFile(name string) (*os.File, error) {
+	f, err := openNonBlocking(name)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if err := checkFile(name, info); err != nil {
-		return "", err
+	info, err := f.Stat()
+	if err == nil {
+		err = checkFile(name, info)
 	}
-	f, err := os.Open(name)
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+// fileSHA256 returns the SHA-256 of a file's content in lower-case hex, after
+// the checks of openFile, and reads at most the 50 MB the API accepts.
+func fileSHA256(name string) (string, error) {
+	f, err := openFile(name)
 	if err != nil {
 		return "", err
 	}
@@ -130,16 +143,9 @@ func fileSHA256(name string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// readFile reads a file for upload, after the checks of fileSHA256.
+// readFile reads a file for upload, with the checks of fileSHA256.
 func readFile(name string) ([]byte, error) {
-	info, err := os.Stat(name)
-	if err != nil {
-		return nil, err
-	}
-	if err := checkFile(name, info); err != nil {
-		return nil, err
-	}
-	f, err := os.Open(name)
+	f, err := openFile(name)
 	if err != nil {
 		return nil, err
 	}

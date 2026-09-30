@@ -86,6 +86,9 @@ type fakeAPI struct {
 	// lowercaseAddress makes GET return street and city in lower case, as the
 	// documented Retrieve example does.
 	lowercaseAddress bool
+	// inGet holds texts that every GET of a listing returns instead of those
+	// stored, by top-level element; see ReturnInGet.
+	inGet map[string]string
 	// pub holds the publications, see fake_api_publish_test.go.
 	pub fakePublishState
 	// contacts holds the contacts, see fake_api_contact_test.go.
@@ -101,6 +104,7 @@ func newFakeAPI(t testing.TB) *fakeAPI {
 		nextID:           315000001,
 		objects:          map[string]*xnode{},
 		deletedOutOfBand: map[string]bool{},
+		inGet:            map[string]string{},
 		pub:              fakePublishState{publications: map[string]fakePublication{}},
 		contacts:         newFakeContactState(t),
 		att:              newFakeAttachmentState(t),
@@ -165,6 +169,19 @@ func (f *fakeAPI) DeleteOutOfBand(id string) {
 	f.deletedOutOfBand[id] = true
 	f.pub.removedOutOfBand = append(f.pub.removedOutOfBand, f.removePublications(id)...)
 	f.removeAttachments(id, true)
+}
+
+// ReturnInGet makes every GET of a listing return text for a top-level
+// element instead of what is stored, as a broken API would; an empty text
+// ends that.
+func (f *fakeAPI) ReturnInGet(element, text string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if text == "" {
+		delete(f.inGet, element)
+		return
+	}
+	f.inGet[element] = text
 }
 
 // SetOutOfBand changes a top-level element as if edited on the website.

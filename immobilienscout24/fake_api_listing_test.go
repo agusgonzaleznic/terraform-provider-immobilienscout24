@@ -229,6 +229,9 @@ func (f *fakeAPI) renderListing(id string, obj *xnode, newSources bool) string {
 			continue
 		}
 		out := renderNumbers(typ, c)
+		if text, ok := f.inGet[c.Name]; ok {
+			out.Text = text
+		}
 		switch c.Name {
 		case "address":
 			out.Children = append(append([]*xnode{}, c.Children...), &xnode{Name: "geoHierarchy", Children: []*xnode{

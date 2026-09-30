@@ -70,7 +70,7 @@ func marshalPublishRequest(realEstateID, channelID string) ([]byte, error) {
 func unmarshalPublication(id string, body []byte) (*Publication, error) {
 	var resp publicationResponse
 	if err := xml.NewDecoder(bytes.NewReader(body)).Decode(&resp); err != nil {
-		return nil, fmt.Errorf("decoding publication response: %w", err)
+		return nil, fmt.Errorf("decoding publication response: %s", errorText(err.Error()))
 	}
 	if resp.XMLName.Space != commonNamespace || resp.XMLName.Local != "publishObject" {
 		return nil, fmt.Errorf("expected a common:publishObject, the API returned <%s> in namespace %q",

@@ -5,6 +5,12 @@ on:
   push:
     branches:
       - main
+  # Weekly, so that a newly published vulnerability or a new Terraform or
+  # OpenTofu release shows here without a code change.
+  schedule:
+    - cron: '30 7 * * 1'
+  # The release workflow runs these jobs before it builds anything.
+  workflow_call:
 
 # Nothing here writes to the repository.
 permissions: {}
@@ -26,6 +32,10 @@ jobs:
           cache: true
       - run: go build -v ./...
       - run: go vet ./...
+      # Known vulnerabilities in the code, its dependencies and the Go standard
+      # library of the toolchain in go.mod, which the releases are built with.
+      - name: No known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: go.mod and go.sum are tidy
         run: |
           go mod tidy
