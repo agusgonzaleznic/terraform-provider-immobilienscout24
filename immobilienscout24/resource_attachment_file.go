@@ -135,6 +135,9 @@ func (r *fileAttachmentResource) ModifyPlan(ctx context.Context, req resource.Mo
 	if contentType.IsNull() {
 		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("content_type"), derived)...)
 	}
+	if !file.IsUnknown() {
+		r.planDefaultTitle(ctx, req, resp, file.ValueString())
+	}
 	if resp.Diagnostics.HasError() || req.State.Raw.IsNull() {
 		return
 	}
@@ -150,6 +153,23 @@ func (r *fileAttachmentResource) ModifyPlan(ctx context.Context, req resource.Mo
 		if !planned.Equal(prior) {
 			resp.RequiresReplace = append(resp.RequiresReplace, p)
 		}
+	}
+}
+
+// planDefaultTitle gives a new attachment without a configured title the
+// title ImmobilienScout24 would give it, the file name without its extension,
+// but sends it in the metadata. The API reads the file name of an upload as
+// Latin-1, so "Küche 1.jpg" became "KÃ¼che 1" (observed 2026-09-30), while it
+// keeps the UTF-8 of the metadata.
+func (r *fileAttachmentResource) planDefaultTitle(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse, file string) {
+	var configured, planned types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("title"), &configured)...)
+	resp.Diagnostics.Append(resp.Plan.GetAttribute(ctx, path.Root("title"), &planned)...)
+	if !configured.IsNull() || !planned.IsUnknown() {
+		return
+	}
+	if title := defaultTitle(file); title != "" {
+		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("title"), types.StringValue(title))...)
 	}
 }
 

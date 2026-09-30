@@ -189,12 +189,16 @@ func attachmentRealEstateIDAttribute(noun string) schema.StringAttribute {
 	}
 }
 
+// maxAttachmentTitle is the most characters a title may have (docs).
+const maxAttachmentTitle = 30
+
 // attachmentTitleAttribute is Optional and Computed: an attachment uploaded
-// without a title gets one from ImmobilienScout24 (observed 2026-09-30), the
-// file name without its extension for a file and "Link" for a link.
+// without a title gets one (observed 2026-09-30), the file name without its
+// extension for a file and "Link" for a link.
 func attachmentTitleAttribute(noun, whenOmitted string) schema.StringAttribute {
 	a := optionalStringWithMax("Title of the "+noun+" (`title`), shown on the listing, at most 30 characters. "+
-		"When left out, ImmobilienScout24 sets "+whenOmitted+".", 30)
+		"When left out, the title is "+whenOmitted+". Removing it from the configuration later keeps the "+
+		"current title.", maxAttachmentTitle)
 	a.Computed = true
 	a.PlanModifiers = []planmodifier.String{stringplanmodifier.UseStateForUnknown()}
 	return a
@@ -242,7 +246,7 @@ func fileAttachmentSchema(kind *fileKind) schema.Schema {
 				Computed:   true,
 				Validators: []validator.String{mediaTypeCheck},
 			},
-			"title":       attachmentTitleAttribute(kind.noun, "the uploaded file's name without its extension, so choose file names that can be shown publicly"),
+			"title":       attachmentTitleAttribute(kind.noun, "the file's name without its extension, cut to 30 characters, so choose file names that can be shown publicly"),
 			"external_id": attachmentExternalIDAttribute(),
 			"floorplan": schema.BoolAttribute{
 				MarkdownDescription: "Whether the " + kind.noun + " is a floor plan (`floorplan`). Defaults to `false`.",
@@ -299,8 +303,19 @@ func linkSchema() schema.Schema {
 					stringCheck{description: "value must be an http or https URL", summary: "Invalid URL", check: checkHTTPURL},
 				},
 			},
-			"title":       attachmentTitleAttribute("link", "`Link`"),
+			"title":       attachmentTitleAttribute("link", "`Link`, which ImmobilienScout24 sets"),
 			"external_id": attachmentExternalIDAttribute(),
 		},
 	}
+}
+
+// defaultTitle is the file name without its extension, trimmed and cut to the
+// 30 characters a title may have.
+func defaultTitle(file string) string {
+	base := filepath.Base(file)
+	title := []rune(strings.TrimSpace(strings.TrimSuffix(base, filepath.Ext(base))))
+	if len(title) > maxAttachmentTitle {
+		title = []rune(strings.TrimSpace(string(title[:maxAttachmentTitle])))
+	}
+	return string(title)
 }

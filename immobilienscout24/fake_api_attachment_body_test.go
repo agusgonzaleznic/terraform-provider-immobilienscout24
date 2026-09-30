@@ -113,9 +113,11 @@ func (f *fakeAPI) parseUpload(body []byte, boundary string) (*fakeAttachment, bo
 	sum := sha256.Sum256(file)
 	a.contentSHA256, a.contentType = hex.EncodeToString(sum[:]), fileType
 	// Observed on the sandbox (2026-09-30): a file uploaded without a title
-	// gets its file name without the extension.
+	// gets its file name without the extension, read as Latin-1 and with
+	// underscores as spaces, so a UTF-8 "Küche 1.jpg" becomes "KÃ¼che 1" and
+	// "K_che_1.jpg" becomes "K che 1".
 	if a.fields["title"] == "" {
-		a.fields["title"] = strings.TrimSuffix(uploadName, path.Ext(uploadName))
+		a.fields["title"] = strings.ReplaceAll(latin1(strings.TrimSuffix(uploadName, path.Ext(uploadName))), "_", " ")
 	}
 	return a, makeTitle, nil
 }
@@ -338,4 +340,14 @@ func (f *fakeAPI) writeAttachment(b *strings.Builder, id, name, attrs, indent st
 		}
 	}
 	b.WriteString(indent + "</" + name + ">\n")
+}
+
+// latin1 reads the bytes of s as Latin-1, as the sandbox reads an upload's
+// file name.
+func latin1(s string) string {
+	r := make([]rune, len(s))
+	for i := 0; i < len(s); i++ {
+		r[i] = rune(s[i])
+	}
+	return string(r)
 }
