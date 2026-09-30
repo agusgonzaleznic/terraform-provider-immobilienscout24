@@ -186,6 +186,9 @@ func resolveProviderSettings(data immobilienscout24ProviderModel, getenv func(st
 func (p *immobilienscout24Provider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewApartmentRentResource,
+		NewAttachmentLinkResource,
+		NewAttachmentPDFResource,
+		NewAttachmentPictureResource,
 		NewContactResource,
 		NewPublicationResource,
 	}

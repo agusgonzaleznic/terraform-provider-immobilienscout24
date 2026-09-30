@@ -4,17 +4,20 @@ An unofficial Terraform and OpenTofu provider for [ImmobilienScout24](https://ww
 [ImmobilienScout24 Import/Export API](https://api.immobilienscout24.de/api-docs/import-export/introduction/) and the
 Terraform Plugin Framework.
 
-> **Status:** early. It manages apartment rentals, their publication and their contact addresses. It follows the
-> API documentation, the live XSD, and publish and contact calls observed on the ImmobilienScout24 sandbox. Its
-> live acceptance test, which creates, publishes, updates, imports and destroys a listing, passes against the
-> sandbox; the contact steps added to it since have not been run there yet. It has not been used against the
-> production API.
+> **Status:** early. It manages apartment rentals, their publication, their contact addresses and their pictures,
+> PDF documents and links. It follows the API documentation, the live XSD, and publish, contact and attachment
+> calls observed on the ImmobilienScout24 sandbox. Its live acceptance test, which creates, publishes, updates,
+> imports and destroys a listing, passes against the sandbox; the contact and attachment steps added to it since
+> have not been run there yet. It has not been used against the production API.
 
 ## Resources
 
 | Resource | Manages |
 |----------|---------|
 | [`immobilienscout24_apartment_rent`](docs/resources/apartment_rent.md) | An apartment for rent: create, read, update, delete, import |
+| [`immobilienscout24_attachment_link`](docs/resources/attachment_link.md) | A link of a listing, such as a video or a virtual tour: create, read, update, delete, import |
+| [`immobilienscout24_attachment_pdf`](docs/resources/attachment_pdf.md) | A PDF document of a listing, uploaded from a local file: create, read, update, delete, import |
+| [`immobilienscout24_attachment_picture`](docs/resources/attachment_picture.md) | A picture of a listing, uploaded from a local file: create, read, update, delete, import |
 | [`immobilienscout24_contact`](docs/resources/contact.md) | A contact address that listings show: create, read, update, delete, import |
 | [`immobilienscout24_publication`](docs/resources/publication.md) | The publication of a listing on one publish channel: create, read, delete, import |
 
@@ -194,6 +197,66 @@ when an update leaves the contact out, and the provider never sent one, so a con
 on the next `terraform apply` that changed the listing. The resource now sends the listing's contact on every
 update: the configured `contact_id`, or, without one, the contact the listing already has.
 
+## Attachments
+
+Pictures and PDF documents are uploaded from local files; links point anywhere on the web:
+
+```hcl
+resource "immobilienscout24_attachment_picture" "living_room" {
+  real_estate_id = immobilienscout24_apartment_rent.example.id
+  file           = "${path.module}/files/living-room.jpg"
+  title          = "Living room"
+  title_picture  = true
+}
+
+resource "immobilienscout24_attachment_pdf" "floor_plan" {
+  real_estate_id = immobilienscout24_apartment_rent.example.id
+  file           = "${path.module}/files/floor-plan.pdf"
+  title          = "Floor plan"
+  floorplan      = true
+}
+
+resource "immobilienscout24_attachment_link" "video" {
+  real_estate_id = immobilienscout24_apartment_rent.example.id
+  url            = "https://www.example.com/videos/berlin-mitte"
+  title          = "Video tour"
+}
+```
+
+- **The file of an attachment cannot be changed.** ImmobilienScout24 only updates the metadata (`title`,
+  `external_id`, `floorplan`, `title_picture`), so new content in `file` replaces the attachment: the plan shows a
+  replacement, and the new upload gets a new id. The provider tells content apart by its SHA-256 (`file_sha256`),
+  which it stores as the attachment's `externalCheckSum`; a new path to the same content uploads nothing.
+- **Every listing with pictures has exactly one title picture**, the first picture in the attachment order. The
+  first picture uploaded becomes it, also without `title_picture`. Setting `title_picture = true` makes a picture the
+  title picture, and the previous one loses the flag. `title_picture = false` is rejected, because ImmobilienScout24
+  ignores it. Deleting the title picture makes the next picture the title picture. Set `title_picture = true` on one
+  picture per listing only: when two pictures set it, the apply that writes both fails with "Two pictures set
+  title_picture = true", and otherwise every apply gives the flag back to the picture that lost it in the apply
+  before.
+- **Links are not part of the attachment order**, which holds pictures and PDF documents only. The provider does not
+  manage that order, except for the title picture.
+- **Limits:** ImmobilienScout24 accepts up to 150 pictures and PDF documents per listing, each at most 50 MB, and up
+  to 150 links. Titles have at most 30 characters. The content type follows from the file's extension (`.jpg`,
+  `.jpeg`, `.png`, `.gif`, `.pdf`), or from `content_type`.
+- **Titles are optional, and ImmobilienScout24 fills in a missing one.** A picture or PDF document without `title`
+  gets its file name without the extension, which is shown on the listing, so name the files accordingly; a link
+  gets `Link`. The provider uploads the file under its own name, reduced to letters, digits, `.`, `_` and `-`.
+- **A file must stay the same between plan and apply.** If it changes after `terraform plan`, Terraform stops the
+  apply with "Provider produced inconsistent final plan", because the provider checks the file again, and nothing
+  is uploaded. Plan again. When a file that was uploaded is missing, the plan keeps the attachment as it is and
+  warns, so that `terraform destroy` still works.
+- Deleting a listing outside Terraform deletes its attachments too; the next plan creates the listing and its
+  attachments anew.
+- An existing attachment can be imported by `{real_estate_id}/{attachment_id}`. ImmobilienScout24 does not return
+  the file, so the configuration names it as usual; the next apply keeps the attachment when its `externalCheckSum`
+  is the SHA-256 of that file, and uploads it again otherwise, which is the case for attachments uploaded by other
+  software:
+
+  ```sh
+  terraform import immobilienscout24_attachment_picture.living_room 315000001/904864036
+  ```
+
 ## Limitations
 
 - **Tested on the sandbox, not on production.** Production API access is paid, so the provider has only been
@@ -203,8 +266,12 @@ update: the configured `contact_id`, or, without one, the contact the listing al
 - **Apartment rentals only.** Other real estate types (houses, apartments for sale, commercial) are not supported.
   Importing an object of another type fails with an error rather than misreading it.
 - **Partial field coverage.** The resource models the mandatory fields and the common optional ones. Updates are
-  full replacements on the API side, so fields it does not model (energy certificate, attachments metadata, and so
-  on) may be reset when Terraform updates a listing that was edited elsewhere. The listing's contact is kept.
+  full replacements on the API side, so fields it does not model (energy certificate and so on) may be reset when
+  Terraform updates a listing that was edited elsewhere. The listing's contact is kept. Attachments are resources
+  of their own, apart from the listing.
+- **No streaming videos, and no attachment order.** Videos uploaded to ImmobilienScout24 are not supported; a link
+  to a video is. The order of pictures and PDF documents is left to ImmobilienScout24, except for the title
+  picture.
 - **Delete is a hard delete.** ImmobilienScout24 recommends deactivating listings instead of deleting them;
   `terraform destroy` deletes.
 - No automatic retry on rate limiting (HTTP 429). The sandbox allows at most 200 write calls per minute.
@@ -222,13 +289,17 @@ make generate  # regenerate docs/ from the schema and examples/
 
 The acceptance tests start an in-process fake of the API that checks the OAuth signature, the documented headers,
 and the element order of every request body against the live XSD in `immobilienscout24/testdata/` (for contacts,
-against the order of the documented examples, which that XSD predates), and that fails publish requests which
-overlap. It mirrors the contact behaviour observed on the sandbox, including the default contact rules. The tests
+against the order of the documented examples, which that XSD predates, and for attachments, against that XSD with
+the newer `externalCheckSum` added), and that fails publish requests which overlap. It mirrors the contact
+behaviour observed on the sandbox, including the default contact rules, and the attachment behaviour: multipart
+uploads, the schema errors of the metadata, the titles it fills in, and the title picture rules. The tests
 need a `terraform` or `tofu` binary but no credentials.
 
 The live sandbox test runs only when asked for explicitly. It creates a contact and an apartment that shows it,
-publishes the apartment on channel `10000` of the sandbox, updates it and destroys all three. It never changes the
-account's default contact:
+uploads a picture to the apartment and adds a link, publishes the apartment on channel `10000` of the sandbox,
+updates the apartment and the picture's title, unpublishes it and deletes the attachments while the apartment
+stays, checking on the sandbox that they are gone, and destroys the rest. It never changes the account's default
+contact:
 
 ```sh
 TF_ACC=1 IMMOBILIENSCOUT24_LIVE=1 \

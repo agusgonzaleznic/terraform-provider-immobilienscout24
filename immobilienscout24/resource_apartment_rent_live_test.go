@@ -3,13 +3,17 @@ package immobilienscout24
 // Live acceptance test against the real ImmobilienScout24 sandbox. It runs
 // only with TF_ACC=1, IMMOBILIENSCOUT24_LIVE=1 and all four
 // IMMOBILIENSCOUT24_* credential variables set to sandbox credentials, and
-// skips otherwise. It makes seven write calls (create the contact, create the
-// listing, publish it on channel 10000, update it, unpublish it, delete it,
-// delete the contact), far below the sandbox limit of 200 per minute, and uses
-// the test data the guidelines ask for ("anonymized" texts, an @is24-test.de
-// address and the ImmobilienScout24 office address and phone number). It
-// never sets default_contact, which would move the default contact of the
-// sandbox account.
+// skips otherwise. It makes twelve write calls (create the contact, create
+// the listing, upload a picture to it, add a link to it, publish it on channel
+// 10000, update it and the picture's title, unpublish it, delete the picture,
+// the link, the listing and the contact), far below the sandbox limit of 200
+// per minute, and uses the test data the guidelines ask for ("anonymized"
+// texts, an @is24-test.de address, the ImmobilienScout24 office address and
+// phone number, and the generated picture testdata/anonymized.jpg). It never
+// sets default_contact, which would move the default contact of the sandbox
+// account. The last step unpublishes the listing and deletes the picture and
+// the link while the listing stays, and asks the sandbox that they are gone:
+// deleting the listing would remove them with it and hide a broken delete.
 
 import (
 	"context"
@@ -37,7 +41,11 @@ func testAccLivePreCheck(t *testing.T) {
 	}
 }
 
-func testAccLiveConfig(externalID, title string, published bool) string {
+// testAccLiveConfig renders the live configuration; title is also the title
+// of the picture, which is uploaded from the file picture.
+// testAccLiveConfig renders the scenario; full adds the publication and the
+// attachments, which the last step removes while the listing stays.
+func testAccLiveConfig(externalID, title, picture string, full bool) string {
 	contact := fmt.Sprintf(`
 resource "immobilienscout24_contact" "test" {
   email        = "%s@is24-test.de"
@@ -52,8 +60,21 @@ resource "immobilienscout24_contact" "test" {
   }
 }
 `, externalID)
-	publication := ""
-	if published {
+	publication, attachments := "", ""
+	if full {
+		attachments = fmt.Sprintf(`
+resource "immobilienscout24_attachment_picture" "test" {
+  real_estate_id = immobilienscout24_apartment_rent.test.id
+  file           = %q
+  title          = %q
+}
+
+resource "immobilienscout24_attachment_link" "test" {
+  real_estate_id = immobilienscout24_apartment_rent.test.id
+  url            = "https://www.immobilienscout24.de"
+  title          = "anonymized"
+}
+`, picture, title)
 		publication = `
 resource "immobilienscout24_publication" "portal" {
   real_estate_id = immobilienscout24_apartment_rent.test.id
@@ -88,23 +109,26 @@ resource "immobilienscout24_apartment_rent" "test" {
     has_courtage = "NO"
   }
 }
-`, externalID, title) + contact + publication
+`, externalID, title) + contact + publication + attachments
 }
 
 func TestAccApartmentRent_liveSandbox(t *testing.T) {
 	testAccLivePreCheck(t)
 	externalID := "tf-acc-" + acctest.RandString(10)
-	var apartmentID, portalID string
+	picture := testFile(t, "anonymized.jpg")
+	var apartmentID, portalID, pictureID, linkID string
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		CheckDestroy:             testAccLiveCheckDestroyed,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccLiveConfig(externalID, "anonymized", true),
+				Config: testAccLiveConfig(externalID, "anonymized", picture, true),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					captureResourceID(testResourceName, &apartmentID),
 					captureResourceID(testPortalName, &portalID),
+					captureResourceID(testPictureName, &pictureID),
+					captureResourceID(testLinkName, &linkID),
 					resource.TestCheckResourceAttrSet(testResourceName, "id"),
 					resource.TestCheckResourceAttr(testResourceName, "external_id", externalID),
 					resource.TestCheckResourceAttrPair(testResourceName, "contact_id", testContactName, "id"),
@@ -112,19 +136,29 @@ func TestAccApartmentRent_liveSandbox(t *testing.T) {
 					resource.TestCheckResourceAttr(testContactName, "default_contact", "false"),
 					resource.TestCheckResourceAttrPair(testPortalName, "real_estate_id", testResourceName, "id"),
 					resource.TestCheckResourceAttr(testPortalName, "channel_id", "10000"),
+					resource.TestCheckResourceAttrPair(testPictureName, "real_estate_id", testResourceName, "id"),
+					resource.TestCheckResourceAttr(testPictureName, "file_sha256", anonymizedJPEGSHA256),
+					// The only picture of the listing is its title picture.
+					resource.TestCheckResourceAttr(testPictureName, "title_picture", "true"),
+					testAccLiveCheckPicture("anonymized"),
+					resource.TestCheckResourceAttrPair(testLinkName, "real_estate_id", testResourceName, "id"),
+					resource.TestCheckResourceAttr(testLinkName, "url", "https://www.immobilienscout24.de"),
 				),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PostApplyPostRefresh: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
 				},
 			},
 			{
-				// On the sandbox, a full PUT kept the listing published.
-				Config: testAccLiveConfig(externalID, "anonymized, updated", true),
+				// On the sandbox, a full PUT kept the listing published. The
+				// picture's title changes in place, and its checksum stays.
+				Config: testAccLiveConfig(externalID, "anonymized, updated", picture, true),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction(testResourceName, plancheck.ResourceActionUpdate),
 						plancheck.ExpectResourceAction(testPortalName, plancheck.ResourceActionNoop),
 						plancheck.ExpectResourceAction(testContactName, plancheck.ResourceActionNoop),
+						plancheck.ExpectResourceAction(testPictureName, plancheck.ResourceActionUpdate),
+						plancheck.ExpectResourceAction(testLinkName, plancheck.ResourceActionNoop),
 					},
 					PostApplyPostRefresh: []plancheck.PlanCheck{plancheck.ExpectEmptyPlan()},
 				},
@@ -135,6 +169,7 @@ func TestAccApartmentRent_liveSandbox(t *testing.T) {
 					resource.TestCheckResourceAttr(testResourceName, "title", "anonymized, updated"),
 					resource.TestCheckResourceAttrPair(testResourceName, "contact_id", testContactName, "id"),
 					testAccLiveCheckListingContact(&apartmentID),
+					testAccLiveCheckPicture("anonymized, updated"),
 				),
 			},
 			{
@@ -153,17 +188,36 @@ func TestAccApartmentRent_liveSandbox(t *testing.T) {
 				ImportStateVerify: true,
 			},
 			{
-				// Unpublish while the listing stays, so the sandbox itself shows
-				// that Delete unpublished it; deleting the listing would remove
-				// the publication with it and hide a broken unpublish.
-				Config: testAccLiveConfig(externalID, "anonymized, updated", false),
+				ResourceName:      testPictureName,
+				ImportState:       true,
+				ImportStateIdFunc: attachmentImportID(testPictureName),
+				ImportStateVerify: true,
+				// ImmobilienScout24 returns neither the file nor its content type.
+				ImportStateVerifyIgnore: []string{"file", "content_type"},
+			},
+			{
+				ResourceName:      testLinkName,
+				ImportState:       true,
+				ImportStateIdFunc: attachmentImportID(testLinkName),
+				ImportStateVerify: true,
+			},
+			{
+				// Unpublish and delete the attachments while the listing stays,
+				// so the sandbox itself shows that each Delete worked; deleting
+				// the listing would remove them with it and hide a broken one.
+				Config: testAccLiveConfig(externalID, "anonymized, updated", picture, false),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction(testPortalName, plancheck.ResourceActionDestroy),
+						plancheck.ExpectResourceAction(testPictureName, plancheck.ResourceActionDestroy),
+						plancheck.ExpectResourceAction(testLinkName, plancheck.ResourceActionDestroy),
 						plancheck.ExpectResourceAction(testResourceName, plancheck.ResourceActionNoop),
 					},
 				},
-				Check: testAccLiveCheckUnpublished(&apartmentID, &portalID),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccLiveCheckUnpublished(&apartmentID, &portalID),
+					testAccLiveCheckAttachmentsGone(&apartmentID, &pictureID, &linkID),
+				),
 			},
 		},
 	})
@@ -183,6 +237,27 @@ func testAccLiveCheckListingContact(apartmentID *string) resource.TestCheckFunc 
 		}
 		if doc.Contact == nil || strings.TrimSpace(doc.Contact.ID) != rs.Primary.ID {
 			return fmt.Errorf("listing %s has contact %+v on the sandbox, want %s", *apartmentID, doc.Contact, rs.Primary.ID)
+		}
+		return nil
+	}
+}
+
+// testAccLiveCheckPicture asks the sandbox for the picture in the state: it
+// has the title, still carries the SHA-256 of the file as its checksum, and
+// is the listing's title picture.
+func testAccLiveCheckPicture(title string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[testPictureName]
+		if !ok {
+			return fmt.Errorf("%s not in state", testPictureName)
+		}
+		doc, err := testAccLiveClient().GetAttachment(context.Background(), rs.Primary.Attributes["real_estate_id"], rs.Primary.ID)
+		if err != nil {
+			return fmt.Errorf("reading picture %s: %w", rs.Primary.ID, err)
+		}
+		if doc.Type != attachmentPicture || doc.Title != title || doc.ExternalCheckSum != anonymizedJPEGSHA256 ||
+			doc.TitlePicture == nil || !*doc.TitlePicture {
+			return fmt.Errorf("picture %s on the sandbox: %+v, want title %q and checksum %s", rs.Primary.ID, doc, title, anonymizedJPEGSHA256)
 		}
 		return nil
 	}
@@ -215,6 +290,20 @@ func testAccLiveCheckUnpublished(apartmentID, portalID *string) resource.TestChe
 	}
 }
 
+// testAccLiveCheckAttachmentsGone asks the sandbox that the attachments are
+// gone while their listing still exists.
+func testAccLiveCheckAttachmentsGone(apartmentID *string, ids ...*string) resource.TestCheckFunc {
+	return func(*terraform.State) error {
+		client := testAccLiveClient()
+		for _, id := range ids {
+			if _, err := client.GetAttachment(context.Background(), *apartmentID, *id); !errors.Is(err, ErrNotFound) {
+				return fmt.Errorf("attachment %s should be gone after deleting it, got: %v", *id, err)
+			}
+		}
+		return nil
+	}
+}
+
 func testAccLiveClient() *Client {
 	return NewClient(sandboxBaseURL,
 		os.Getenv("IMMOBILIENSCOUT24_CONSUMER_KEY"), os.Getenv("IMMOBILIENSCOUT24_CONSUMER_SECRET"),
@@ -238,6 +327,8 @@ func testAccLiveCheckDestroyed(s *terraform.State) error {
 			_, err = client.GetPublication(context.Background(), rs.Primary.ID)
 		case "immobilienscout24_contact":
 			_, err = client.GetContact(context.Background(), rs.Primary.ID)
+		case "immobilienscout24_attachment_picture", "immobilienscout24_attachment_pdf", "immobilienscout24_attachment_link":
+			_, err = client.GetAttachment(context.Background(), rs.Primary.Attributes["real_estate_id"], rs.Primary.ID)
 		default:
 			continue
 		}
