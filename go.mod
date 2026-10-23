@@ -2,7 +2,7 @@ module github.com/agusgonzaleznic/terraform-provider-immobilienscout24
 
 go 1.26.0
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/dghubble/oauth1 v0.7.3
