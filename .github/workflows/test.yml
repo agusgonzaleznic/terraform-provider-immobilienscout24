@@ -1,15 +1,12 @@
 name: Tests
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
   # Weekly, so that a newly published vulnerability or a new Terraform or
   # OpenTofu release shows here without a code change.
   schedule:
     - cron: '30 7 * * 1'
-  # The release workflow runs these jobs before it builds anything.
+  # ci.yml runs these jobs on every pull request and every push to main, and
+  # release.yml before it builds anything.
   workflow_call:
 
 # Nothing here writes to the repository.

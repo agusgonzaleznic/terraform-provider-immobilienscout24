@@ -1,0 +1,82 @@
+name: CI
+
+# Every pull request and every push to main runs the tests, and the merge is
+# the release. On a pull request, "Release / Check the version" says which
+# version the merge releases. On main, once the tests pass, the Release job
+# tags the next version when what ships changed since the newest tag, and
+# starts release.yml on the tag, which builds, signs and publishes the release.
+# Nobody pushes a tag by hand.
+#
+# Both Release jobs run the shared version-tag.yml from
+# agusgonzaleznic/github-reusable-workflows, pinned to a full commit SHA with
+# the release in a comment. They live here and not in test.yml: release.yml
+# calls test.yml with a read-only token, and a called workflow cannot ask for
+# more than its caller grants.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+# A pull request cancels its older runs. Runs on main never cancel a running
+# one, because it may be tagging a version and waiting for its release.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  tests:
+    name: Tests
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+
+  # The version comes from the tags: the next minor version, or the next major
+  # one when a merged pull request has the label "breaking". What ships: the
+  # provider's code and Go modules, docs/ (what both registries show, generated
+  # from the schema and examples/), the registry manifest and the release
+  # configuration. A change to README.md or LICENSE ships inside the zips of
+  # the next version.
+  check-version:
+    name: Release
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: agusgonzaleznic/github-reusable-workflows/.github/workflows/version-tag.yml@1832ea3171529c36e663d34965917c9f14694ce5 # v1.9.0
+    with:
+      version-from-tags: true
+      release-paths: |
+        immobilienscout24/
+        main.go
+        go.mod
+        go.sum
+        docs/
+        terraform-registry-manifest.json
+        .goreleaser.yml
+        .github/workflows/release.yml
+
+  # Tags the next version on the merge when what ships changed, then runs
+  # release.yml on the tag and waits for it. A release that fails turns this
+  # run red.
+  release:
+    name: Release
+    if: github.event_name == 'push'
+    needs: tests
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: read
+    uses: agusgonzaleznic/github-reusable-workflows/.github/workflows/version-tag.yml@1832ea3171529c36e663d34965917c9f14694ce5 # v1.9.0
+    with:
+      version-from-tags: true
+      release-paths: |
+        immobilienscout24/
+        main.go
+        go.mod
+        go.sum
+        docs/
+        terraform-registry-manifest.json
+        .goreleaser.yml
+        .github/workflows/release.yml
