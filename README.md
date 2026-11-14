@@ -1,89 +1,56 @@
-# terraform-provider-immobilienscout24
+<div align="center">
 
-An unofficial Terraform and OpenTofu provider for [ImmobilienScout24](https://www.immobilienscout24.de/), built on the
-[ImmobilienScout24 Import/Export API](https://api.immobilienscout24.de/api-docs/import-export/introduction/) and the
-Terraform Plugin Framework.
+<img src="assets/emblem.svg" width="88" alt="A house outline with a coral door, the emblem of the ImmobilienScout24 provider">
 
-> **Status:** early. It manages apartments and houses for rent and for sale, with their energy certificate, their
-> publication, their contact addresses and their pictures, PDF documents and links. It follows the API
-> documentation, the live XSD, and listing, energy, publish, contact and attachment calls observed on the
-> ImmobilienScout24 sandbox. Its five live acceptance tests pass against the sandbox, on Terraform and on OpenTofu:
-> together they create, update, import and destroy a listing of every type, with energy certificates, and one of
-> them also publishes its listing and manages its contact and attachments. It has not been used against the
-> production API.
+# 🏠 terraform-provider-immobilienscout24
 
-## Resources
+### German real estate listings as code, on Terraform and OpenTofu.
 
-| Resource | Manages |
-|----------|---------|
-| [`immobilienscout24_apartment_buy`](docs/resources/apartment_buy.md) | An apartment for sale: create, read, update, delete, import |
-| [`immobilienscout24_apartment_rent`](docs/resources/apartment_rent.md) | An apartment for rent: create, read, update, delete, import |
-| [`immobilienscout24_attachment_link`](docs/resources/attachment_link.md) | A link of a listing, such as a video or a virtual tour: create, read, update, delete, import |
-| [`immobilienscout24_attachment_pdf`](docs/resources/attachment_pdf.md) | A PDF document of a listing, uploaded from a local file: create, read, update, delete, import |
-| [`immobilienscout24_attachment_picture`](docs/resources/attachment_picture.md) | A picture of a listing, uploaded from a local file: create, read, update, delete, import |
-| [`immobilienscout24_contact`](docs/resources/contact.md) | A contact address that listings show: create, read, update, delete, import |
-| [`immobilienscout24_house_buy`](docs/resources/house_buy.md) | A house for sale: create, read, update, delete, import |
-| [`immobilienscout24_house_rent`](docs/resources/house_rent.md) | A house for rent: create, read, update, delete, import |
-| [`immobilienscout24_publication`](docs/resources/publication.md) | The publication of a listing on one publish channel: create, read, delete, import |
+**An unofficial provider for [ImmobilienScout24](https://www.immobilienscout24.de/).** It manages
+apartments and houses for rent and for sale, with their energy certificate, their publication, their
+contact addresses and their pictures, PDF documents and links. It is built on the
+[ImmobilienScout24 Import/Export API](https://api.immobilienscout24.de/api-docs/import-export/introduction/)
+and the Terraform Plugin Framework.
 
-## Requirements
+<br>
 
-- [Terraform](https://developer.hashicorp.com/terraform/install) 1.14 or newer, or
-  [OpenTofu](https://opentofu.org/docs/intro/install/) 1.11 or newer
-- [Go](https://go.dev/doc/install) 1.25 or newer, to build from source
-- ImmobilienScout24 API credentials (OAuth 1.0a): a consumer key and secret, plus an access token and
-  secret, for example your personal access token. See
-  [Get Your Client Credentials](https://api.immobilienscout24.de/api-docs/get-started/get-your-client-credentials/).
-  Keys are issued per environment (sandbox or production).
+[![Terraform Registry](https://img.shields.io/badge/Terraform_Registry-agusgonzaleznic%2Fimmobilienscout24-555D6D?style=for-the-badge&labelColor=1A1D23&logo=terraform&logoColor=FAFAFA)](https://registry.terraform.io/providers/agusgonzaleznic/immobilienscout24)
+[![OpenTofu Registry](https://img.shields.io/badge/OpenTofu_Registry-agusgonzaleznic%2Fimmobilienscout24-555D6D?style=for-the-badge&labelColor=1A1D23&logo=opentofu&logoColor=FAFAFA)](https://search.opentofu.org/provider/agusgonzaleznic/immobilienscout24)
+<br>
+[![release](https://img.shields.io/github/v/release/agusgonzaleznic/terraform-provider-immobilienscout24?style=for-the-badge&labelColor=1A1D23&color=555D6D&logo=github&logoColor=FAFAFA)](https://github.com/agusgonzaleznic/terraform-provider-immobilienscout24/releases)
+[![go](https://img.shields.io/github/go-mod/go-version/agusgonzaleznic/terraform-provider-immobilienscout24?style=for-the-badge&labelColor=1A1D23&color=555D6D&logo=go&logoColor=FAFAFA)](go.mod)
+[![licence](https://img.shields.io/badge/licence-MIT-555D6D?style=for-the-badge&labelColor=1A1D23)](LICENSE)
 
-## Installation
+<br>
+
+**[What this is](#-what-this-is) · [Quick start](#-quick-start) · [Resources](#-resources) · [Configuration](#-configuration) · [Energy certificate](#-energy-certificate) · [Publishing](#-publishing) · [Contacts](#-contacts) · [Attachments](#-attachments) · [Limitations](#-limitations) · [Development](#development) · [Releases](#-how-a-release-happens) · [Security](#-security) · [Support](#-support-this-project)**
+
+</div>
+
+---
+
+## 🧭 What this is
+
+This provider lets a portfolio of listings live in a repository: reviewed in a pull request,
+planned before it changes, and rebuilt from code when it has to. Each listing, contact,
+publication and attachment is a Terraform resource, and an existing listing can be imported by its
+scout object id.
+
+> [!NOTE]
+> The provider is early. It follows the API documentation, the live XSD, and the listing,
+> energy, publish, contact and attachment calls observed on the ImmobilienScout24 sandbox. It has five
+> live acceptance tests against the sandbox: together they create, update, import and destroy a
+> listing of every type, with energy certificates, and one of them also publishes its listing and
+> manages its contact and attachments. I haven't used it against the production API. See
+> [limitations](#-limitations).
+
+---
+
+## ⚡ Quick start
 
 The provider is on the [Terraform Registry](https://registry.terraform.io/providers/agusgonzaleznic/immobilienscout24)
 and the [OpenTofu Registry](https://search.opentofu.org/provider/agusgonzaleznic/immobilienscout24), so
-`terraform init` or `tofu init` installs it from the `required_providers` block in the [example](#example). To use a
-local build instead, build it and point Terraform at the build.
-
-1. Build the binary into your Go bin directory:
-
-   ```sh
-   git clone https://github.com/agusgonzaleznic/terraform-provider-immobilienscout24.git
-   cd terraform-provider-immobilienscout24
-   go install .
-   ```
-
-2. Tell Terraform to use that build instead of a registry download. Add this to `~/.terraformrc`,
-   replacing the path with the output of `go env GOBIN` (or `$(go env GOPATH)/bin` when that is empty):
-
-   ```hcl
-   provider_installation {
-     dev_overrides {
-       "agusgonzaleznic/immobilienscout24" = "/Users/you/go/bin"
-     }
-     direct {}
-   }
-   ```
-
-   With `dev_overrides` in place, skip `terraform init` and run `terraform plan` directly.
-
-## Configuration
-
-Pass the credentials through environment variables so they never appear in your Terraform files:
-
-| Provider attribute    | Environment variable                    |
-|-----------------------|-----------------------------------------|
-| `consumer_key`        | `IMMOBILIENSCOUT24_CONSUMER_KEY`        |
-| `consumer_secret`     | `IMMOBILIENSCOUT24_CONSUMER_SECRET`     |
-| `access_token`        | `IMMOBILIENSCOUT24_ACCESS_TOKEN`        |
-| `access_token_secret` | `IMMOBILIENSCOUT24_ACCESS_TOKEN_SECRET` |
-
-A value set in the provider block wins over the environment variable. All four are sensitive.
-
-`environment` selects the API: `sandbox` (the default, `https://rest.sandbox-immobilienscout24.de/restapi/api`)
-or `production` (`https://rest.immobilienscout24.de/restapi/api`). `base_url` replaces the API root entirely;
-it exists for tests and advanced use, and conflicts with `environment`. It must be an `https` URL, except for a
-loopback host (`localhost`, `127.0.0.0/8` or `::1`), such as a local fake of the API, which may use `http`.
-
-## Example
+`terraform init` or `tofu init` installs it from the `required_providers` block below.
 
 ```hcl
 terraform {
@@ -128,7 +95,99 @@ imported by its scout object id:
 terraform import immobilienscout24_apartment_rent.example 315000001
 ```
 
-## Energy certificate
+### Requirements
+
+| You need | Detail |
+|---|---|
+| Terraform or OpenTofu | [Terraform](https://developer.hashicorp.com/terraform/install) or [OpenTofu](https://opentofu.org/docs/intro/install/). CI runs the acceptance tests on Terraform 1.14 and 1.16 and on OpenTofu 1.11 and 1.12, so 1.14 and 1.11 are the oldest versions I test. The provider declares no minimum of its own |
+| API credentials | OAuth 1.0a: a consumer key and secret, plus an access token and secret, for example your personal access token. See [Get Your Client Credentials](https://api.immobilienscout24.de/api-docs/get-started/get-your-client-credentials/). Keys are issued per environment (sandbox or production) |
+| Go, to build from source only | [Go](https://go.dev/doc/install) 1.26 or newer. `go.mod` also names the 1.27.4 toolchain, which Go downloads by itself |
+
+<details>
+<summary><b>Use a local build instead of the registry</b></summary>
+
+1. Build the binary into your Go bin directory:
+
+   ```sh
+   git clone https://github.com/agusgonzaleznic/terraform-provider-immobilienscout24.git
+   cd terraform-provider-immobilienscout24
+   go install .
+   ```
+
+2. Tell Terraform to use that build instead of a registry download. Add this to `~/.terraformrc`,
+   replacing the path with the output of `go env GOBIN` (or `$(go env GOPATH)/bin` when that is empty):
+
+   ```hcl
+   provider_installation {
+     dev_overrides {
+       "agusgonzaleznic/immobilienscout24" = "/Users/you/go/bin"
+     }
+     direct {}
+   }
+   ```
+
+   With `dev_overrides` in place, skip `terraform init` and run `terraform plan` directly.
+
+</details>
+
+---
+
+## 🧩 Resources
+
+| Resource | Manages |
+|----------|---------|
+| [`immobilienscout24_apartment_buy`](docs/resources/apartment_buy.md) | An apartment for sale: create, read, update, delete, import |
+| [`immobilienscout24_apartment_rent`](docs/resources/apartment_rent.md) | An apartment for rent: create, read, update, delete, import |
+| [`immobilienscout24_attachment_link`](docs/resources/attachment_link.md) | A link of a listing, such as a video or a virtual tour: create, read, update, delete, import |
+| [`immobilienscout24_attachment_pdf`](docs/resources/attachment_pdf.md) | A PDF document of a listing, uploaded from a local file: create, read, update, delete, import |
+| [`immobilienscout24_attachment_picture`](docs/resources/attachment_picture.md) | A picture of a listing, uploaded from a local file: create, read, update, delete, import |
+| [`immobilienscout24_contact`](docs/resources/contact.md) | A contact address that listings show: create, read, update, delete, import |
+| [`immobilienscout24_house_buy`](docs/resources/house_buy.md) | A house for sale: create, read, update, delete, import |
+| [`immobilienscout24_house_rent`](docs/resources/house_rent.md) | A house for rent: create, read, update, delete, import |
+| [`immobilienscout24_publication`](docs/resources/publication.md) | The publication of a listing on one publish channel: create, read, delete, import |
+
+The resources point at each other. A listing names its contact with `contact_id`, and pictures, PDF
+documents, links and publications name their listing with `real_estate_id`, so Terraform creates them in
+that order.
+
+```mermaid
+flowchart LR
+    C["immobilienscout24_contact"] -->|contact_id| L["listing<br/>apartment_rent · apartment_buy<br/>house_rent · house_buy"]
+    L -->|real_estate_id| A["attachment_picture<br/>attachment_pdf<br/>attachment_link"]
+    L -->|real_estate_id| P["publication<br/>one per publish channel"]
+    P --> O["Listing published<br/>on a channel"]
+    classDef default fill:#FFFFFF,stroke:#89909F,color:#1A1D23
+    classDef decide fill:#E9EAED,stroke:#555D6D,color:#1A1D23
+    classDef outcome fill:#FFFFFF,stroke:#DE3412,stroke-width:2px,color:#1A1D23
+    class O outcome
+```
+
+Arrows read as "must exist first", up to the published listing. The contact and the attachments are optional: a listing with neither
+still works, and shows the account's default contact.
+
+---
+
+## 🔑 Configuration
+
+Pass the credentials through environment variables so they never appear in your Terraform files:
+
+| Provider attribute    | Environment variable                    |
+|-----------------------|-----------------------------------------|
+| `consumer_key`        | `IMMOBILIENSCOUT24_CONSUMER_KEY`        |
+| `consumer_secret`     | `IMMOBILIENSCOUT24_CONSUMER_SECRET`     |
+| `access_token`        | `IMMOBILIENSCOUT24_ACCESS_TOKEN`        |
+| `access_token_secret` | `IMMOBILIENSCOUT24_ACCESS_TOKEN_SECRET` |
+
+A value set in the provider block wins over the environment variable. All four are sensitive.
+
+`environment` selects the API: `sandbox` (the default, `https://rest.sandbox-immobilienscout24.de/restapi/api`)
+or `production` (`https://rest.immobilienscout24.de/restapi/api`). `base_url` replaces the API root entirely;
+it exists for tests and advanced use, and conflicts with `environment`. It must be an `https` URL, except for a
+loopback host (`localhost`, `127.0.0.0/8` or `::1`), such as a local fake of the API, which may use `http`.
+
+---
+
+## 🔋 Energy certificate
 
 Every listing resource takes the energy certificate and the energy values of the building:
 
@@ -165,7 +224,9 @@ resource "immobilienscout24_house_rent" "example" {
   `thermal_characteristic = 95.555` would come back as `95.56`, so the plan refuses it. The same holds for every
   price, area and number of rooms; the coordinates are exempt.
 
-## Publishing
+---
+
+## 📣 Publishing
 
 New listings are created unpublished. An `immobilienscout24_publication` publishes a listing on one publish
 channel, and destroying it unpublishes the listing on that channel only:
@@ -182,9 +243,10 @@ resource "immobilienscout24_publication" "homepage" {
 }
 ```
 
-> **Warning:** in production, publishing on channel `10000` uses the paid contingent of your ImmobilienScout24
-> account, and without contingent the API answers `No contingent available`. Try a configuration on the sandbox
-> first (the default `environment`), where no bookings take place.
+> [!WARNING]
+> In production, publishing on channel `10000` uses the paid contingent of your ImmobilienScout24 account, and
+> without contingent the API answers `No contingent available`. Try a configuration on the sandbox first (the
+> default `environment`), where no bookings take place.
 
 - Publishing on `10000` activates the listing. Unpublishing it there deactivates the listing, even while it stays
   published on `10001`.
@@ -200,7 +262,9 @@ resource "immobilienscout24_publication" "homepage" {
 - The API documentation asks for publish requests one after the other, so the provider sends them one at a time,
   even when Terraform creates several publications in parallel.
 
-## Contacts
+---
+
+## 📇 Contacts
 
 A listing shows one contact address. An `immobilienscout24_contact` manages one, and `contact_id` points a listing
 at it:
@@ -241,21 +305,16 @@ resource "immobilienscout24_apartment_rent" "example" {
   terraform import immobilienscout24_contact.leasing 124309506
   ```
 
-**Fixed: updates no longer reset a listing's contact.** Up to v0.1.0, every update of an
-`immobilienscout24_apartment_rent` reset the listing to the account's default contact. ImmobilienScout24 does that
-when an update leaves the contact out, and the provider never sent one, so a contact chosen on the website was lost
-on the next `terraform apply` that changed the listing. The resource now sends the listing's contact on every
-update: the configured `contact_id`, or, without one, the contact the listing already has.
+### Upgrading
 
-**Changed: `immobilienscout24_apartment_rent` manages the energy certificate.** From v0.2.0 on, the resource
-manages the energy certificate and the energy values of the building (`energy_certificate`, `construction_year`,
-`heating_type`, `energy_sources`, `building_energy_rating_type`, `thermal_characteristic` and
-`energy_consumption_contains_warm_water`). For a listing whose energy data was set outside Terraform, the first
-plan after upgrading shows an in-place update that would remove it: add the energy attributes to the configuration
-before applying. `energy_sources` and `energy_consumption_contains_warm_water` are filled in from the API on refresh
-and cause no change on their own.
+| Changed in | What changed | What to do when upgrading from v0.1.0 |
+|---|---|---|
+| v0.2.0 | Updates no longer reset a listing's contact. Up to v0.1.0, every update of an `immobilienscout24_apartment_rent` reset the listing to the account's default contact, because ImmobilienScout24 does that when an update leaves the contact out and the provider never sent one. A contact chosen on the website was lost on the next `terraform apply` that changed the listing. The resource now sends the listing's contact on every update: the configured `contact_id`, or, without one, the contact the listing already has | Nothing |
+| v0.2.0 | `immobilienscout24_apartment_rent` manages the energy certificate and the energy values of the building (`energy_certificate`, `construction_year`, `heating_type`, `energy_sources`, `building_energy_rating_type`, `thermal_characteristic` and `energy_consumption_contains_warm_water`) | For a listing whose energy data was set outside Terraform, the first plan after upgrading shows an in-place update that would remove it: add the energy attributes to the configuration before applying. `energy_sources` and `energy_consumption_contains_warm_water` are filled in from the API on refresh and cause no change on their own |
 
-## Attachments
+---
+
+## 📎 Attachments
 
 Pictures and PDF documents are uploaded from local files; links point anywhere on the web:
 
@@ -294,7 +353,7 @@ resource "immobilienscout24_attachment_link" "video" {
   before.
 - **Links are not part of the attachment order**, which holds pictures and PDF documents only. The provider does not
   manage that order, except for the title picture.
-- **Limits:** ImmobilienScout24 accepts up to 150 pictures and PDF documents per listing, each at most 50 MB, and up
+- ImmobilienScout24 accepts up to 150 pictures and PDF documents per listing, each at most 50 MB, and up
   to 150 links. Titles have at most 30 characters. The content type follows from the file's extension (`.jpg`,
   `.jpeg`, `.png`, `.gif`, `.pdf`), or from `content_type`.
 - **Titles are optional.** A picture or PDF document without `title` is titled with its file name without the
@@ -317,27 +376,27 @@ resource "immobilienscout24_attachment_link" "video" {
   terraform import immobilienscout24_attachment_picture.living_room 315000001/904864036
   ```
 
-## Limitations
+---
 
-- **Tested on the sandbox, not on production.** Production API access is paid, so the provider has only been
-  run against the sandbox; see [Development](#development).
-- **Publish requests wait for each other within one provider configuration.** Two provider configurations (for
-  example aliases) for the same account can still publish in parallel.
-- **Apartments and houses only.** The four listing types for rent and for sale are supported; other real estate
-  types, such as plots and commercial ones, are not. Importing a listing into a resource of another type fails with
-  an error rather than misreading it.
-- **Partial field coverage.** The listing resources model the mandatory fields, the energy certificate and the
-  common optional fields. Updates are full replacements on the API side, so fields they do not model (the
-  condition, the number of bedrooms and so on) may be reset when Terraform updates a listing that was edited
-  elsewhere. The listing's contact is kept. Attachments are resources of their own, apart from the listing.
-- **No streaming videos, and no attachment order.** Videos uploaded to ImmobilienScout24 are not supported; a link
-  to a video is. The order of pictures and PDF documents is left to ImmobilienScout24, except for the title
-  picture.
-- **Delete is a hard delete.** ImmobilienScout24 recommends deactivating listings instead of deleting them;
-  `terraform destroy` deletes.
-- No automatic retry on rate limiting (HTTP 429). The sandbox allows at most 200 write calls per minute.
+## 🚧 Limitations
 
-## Development
+What the provider doesn't do:
+
+| Limit | Detail |
+|---|---|
+| Tested on the sandbox, not on production | Production API access is paid, so the provider has only been run against the sandbox. See [development](#development) |
+| Apartments and houses only | The four listing types for rent and for sale are supported; other real estate types, such as plots and commercial ones, are not. Importing a listing into a resource of another type fails with an error rather than misreading it |
+| Partial field coverage | The listing resources model the mandatory fields, the energy certificate and the common optional fields. Updates are full replacements on the API side, so fields they do not model (the condition, the number of bedrooms and so on) may be reset when Terraform updates a listing that was edited elsewhere. The listing's contact is kept. Attachments are resources of their own, apart from the listing |
+| No streaming videos, no attachment order | Videos uploaded to ImmobilienScout24 are not supported; a link to a video is. The order of pictures and PDF documents is left to ImmobilienScout24, except for the title picture |
+| Delete is a hard delete | ImmobilienScout24 recommends deactivating listings instead of deleting them; `terraform destroy` deletes |
+| Publish requests wait for each other within one provider configuration | Two provider configurations (for example aliases) for the same account can still publish in parallel |
+| No automatic retry on rate limiting | HTTP 429 is not retried. The sandbox allows at most 200 write calls per minute |
+
+---
+
+<a id="development"></a>
+
+## 🛠️ Development
 
 ```sh
 make test      # unit tests, no network
@@ -347,6 +406,9 @@ TF_ACC_TERRAFORM_PATH=$(which tofu) TF_ACC_PROVIDER_NAMESPACE=hashicorp TF_ACC_P
 make lint
 make generate  # regenerate docs/ from the schema and examples/
 ```
+
+`docs/` is generated by `make generate` from the schema and `examples/`, and CI fails when it is out of date, so
+edit the schema or the examples and never the generated files.
 
 The acceptance tests start an in-process fake of the API that checks the OAuth signature, the documented headers,
 and the element order of every request body against the live XSD in `immobilienscout24/testdata/` (for contacts,
@@ -359,12 +421,14 @@ behaviour observed on the sandbox, including the default contact rules, and the 
 uploads, the schema errors of the metadata, the titles it fills in, and the title picture rules. The tests
 need a `terraform` or `tofu` binary but no credentials.
 
+<details>
+<summary><b>The live sandbox tests</b></summary>
+
 The live sandbox test runs only when asked for explicitly. It creates a contact and an apartment that shows it,
 uploads two pictures to the apartment, one of them untitled and named `Küche 1.jpg`, and adds a link, publishes
 the apartment on channel `10000` of the sandbox, updates the apartment and a picture's title, unpublishes it and
 deletes the attachments while the apartment stays, checking on the sandbox that they are gone, and destroys the
-rest. It never changes the account's default
-contact:
+rest. It never changes the account's default contact:
 
 ```sh
 TF_ACC=1 IMMOBILIENSCOUT24_LIVE=1 \
@@ -377,7 +441,50 @@ Four more live tests, for an apartment for sale, a house for rent, a house for s
 apartment for rent, each create a listing, update, import and destroy it, and check on the sandbox that it is gone.
 They set no contact, so each listing shows the default contact. `-run _liveSandbox` runs all five live tests.
 
-## Security
+</details>
+
+---
+
+## 🔁 How a release happens
+
+The merge of a pull request is the release. Nobody pushes a tag by hand.
+
+```mermaid
+flowchart TD
+    A["Open a pull request"] --> B{"Does it change the code, the Go modules,<br/>docs/ or the release setup?"}
+    B -->|no| C["Merge: nothing is released"]
+    B -->|yes| D["Merge to main"]
+    D --> E["The tests pass on main"]
+    E --> F["The Release job tags the next version:<br/>minor, or major with the label breaking"]
+    F --> G["release.yml on the tag: the tests again, then<br/>the release environment, which holds the GPG key"]
+    G --> M{"Tag commit is on main?"}
+    M -->|no| X["Nothing is built or signed"]
+    M -->|yes| R["GoReleaser: one zip per platform,<br/>signed SHA256SUMS, GitHub release"]
+    R --> Q["Terraform Registry via webhook<br/>OpenTofu Registry via periodic sync"]
+
+    classDef default fill:#FFFFFF,stroke:#89909F,color:#1A1D23
+    classDef decide fill:#E9EAED,stroke:#555D6D,color:#1A1D23
+    classDef outcome fill:#FFFFFF,stroke:#DE3412,stroke-width:2px,color:#1A1D23
+    class B,M decide
+    class Q outcome
+```
+
+- A pull request that changes what ships (`immobilienscout24/`, `main.go`, `go.mod`, `go.sum`, `docs/`,
+  `terraform-registry-manifest.json`, `.goreleaser.yml` or `release.yml`) releases a new version when it merges,
+  and its check `Release / Check the version` names it. The tags set the version: the minor version goes up, or the
+  major version when a pull request merged since the last release has the label `breaking`. A merged Dependabot
+  update of a Go module changes `go.mod` and `go.sum`, so it releases a version too.
+- On main, once the tests pass, the Release job in [`ci.yml`](.github/workflows/ci.yml) tags `vX.Y.Z` and starts
+  [`release.yml`](.github/workflows/release.yml) on the tag. It runs the whole test workflow again on the tagged
+  commit, then a job in the `release` environment, the only place the signing key lives, which accepts `v*` tags
+  only. That job checks that the tag is on main, and GoReleaser builds the zips and signs their `SHA256SUMS`.
+- [`.goreleaser.yml`](.goreleaser.yml) builds for freebsd, windows, linux and darwin, with `CGO_ENABLED=0` and
+  `-trimpath`, and lists the registry manifest ([`terraform-registry-manifest.json`](terraform-registry-manifest.json),
+  protocol 6.0) in the checksums.
+
+---
+
+## 🔐 Security
 
 Please report a vulnerability privately in the **Security** tab, as the
 [security policy](https://github.com/agusgonzaleznic/.github/blob/main/SECURITY.md) describes, never in a public
@@ -387,6 +494,40 @@ Every release is signed with the GPG key `131CD2FD69BA525373F222FD51BEA00CE6BEAD
 and the OpenTofu Registry check on `terraform init` and `tofu init`. The key signs the release's `SHA256SUMS`, which
 lists the checksum of every archive.
 
-## License
+---
 
-MIT
+## 💛 Support this project
+
+It's free and stays free, and I'm glad to share it.
+
+Three things help, in ascending order of effort:
+
+- **Star the repo.** It tells the next person who manages listings as code that this exists.
+- **Open an issue** when the provider and the ImmobilienScout24 API disagree. A request and a response
+  that show it are the most useful report I can get.
+- **Drop a coffee on Ko-fi, or sponsor on GitHub**, if this saved you a day of clicking through the
+  portal. Ko-fi is a one-off, and GitHub Sponsors can be monthly or one-time, with a custom
+  amount.
+
+<div align="center">
+<br>
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-one--off-555D6D?style=for-the-badge&labelColor=1A1D23&logo=kofi&logoColor=FAFAFA)](https://ko-fi.com/agusgonzaleznic)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-monthly-555D6D?style=for-the-badge&labelColor=1A1D23&logo=githubsponsors&logoColor=FAFAFA)](https://github.com/sponsors/agusgonzaleznic)
+<br>
+[![website](https://img.shields.io/badge/website-agusgonzaleznic.com-555D6D?style=for-the-badge&labelColor=1A1D23)](https://agusgonzaleznic.com)
+[![GitHub](https://img.shields.io/badge/GitHub-agusgonzaleznic-555D6D?style=for-the-badge&labelColor=1A1D23&logo=github&logoColor=FAFAFA)](https://github.com/agusgonzaleznic)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-agusgonzaleznic-555D6D?style=for-the-badge&labelColor=1A1D23)](https://www.linkedin.com/in/agusgonzaleznic)
+
+<br>
+
+<sub>Built in Berlin by <b>Agustin Gonzalez Nicolini</b>. I work on engineering leadership and write
+about it at <a href="https://agusgonzaleznic.com">agusgonzaleznic.com</a>.</sub>
+
+</div>
+
+---
+
+## 📄 Licence
+
+[MIT](LICENSE), copyright 2025 Agustin Gonzalez Nicolini. This is an unofficial provider.
