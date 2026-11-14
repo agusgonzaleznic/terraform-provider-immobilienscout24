@@ -38,7 +38,10 @@ Terraform Plugin Framework.
 
 ## Installation
 
-The provider is not on a registry yet, so build it locally and point Terraform at the build.
+The provider is on the [Terraform Registry](https://registry.terraform.io/providers/agusgonzaleznic/immobilienscout24)
+and the [OpenTofu Registry](https://search.opentofu.org/provider/agusgonzaleznic/immobilienscout24), so
+`terraform init` or `tofu init` installs it from the `required_providers` block in the [example](#example). To use a
+local build instead, build it and point Terraform at the build.
 
 1. Build the binary into your Go bin directory:
 
@@ -373,6 +376,16 @@ TF_ACC=1 IMMOBILIENSCOUT24_LIVE=1 \
 Four more live tests, for an apartment for sale, a house for rent, a house for sale and the energy attributes of an
 apartment for rent, each create a listing, update, import and destroy it, and check on the sandbox that it is gone.
 They set no contact, so each listing shows the default contact. `-run _liveSandbox` runs all five live tests.
+
+## Security
+
+Please report a vulnerability privately in the **Security** tab, as the
+[security policy](https://github.com/agusgonzaleznic/.github/blob/main/SECURITY.md) describes, never in a public
+issue. Include the provider version and the steps to reproduce.
+
+Every release is signed with the GPG key `131CD2FD69BA525373F222FD51BEA00CE6BEAD92`, which the Terraform Registry
+and the OpenTofu Registry check on `terraform init` and `tofu init`. The key signs the release's `SHA256SUMS`, which
+lists the checksum of every archive.
 
 ## License
 
