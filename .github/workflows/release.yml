@@ -1,12 +1,18 @@
 name: Release
 
-# Pushing a tag like v0.1.0 builds, signs and publishes a GitHub release. The
-# Terraform Registry picks it up through its webhook and the OpenTofu Registry
-# through its periodic sync.
+# Builds, signs and publishes the GitHub release of a version tag vX.Y.Z on
+# main. ci.yml's Release job makes the tag when a merge changes what ships, and
+# starts this workflow on it with workflow_dispatch, because GitHub starts no
+# workflow for a tag its own token creates. The Terraform Registry picks the
+# release up through its webhook and the OpenTofu Registry through its
+# periodic sync.
 on:
   push:
     tags:
       - 'v*'
+  # Only a v* tag gets past the release environment, so a run started on a
+  # branch stops before the signing key.
+  workflow_dispatch:
 
 permissions: {}
 
