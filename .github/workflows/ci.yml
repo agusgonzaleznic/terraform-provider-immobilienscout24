@@ -44,7 +44,7 @@ jobs:
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
-    uses: agusgonzaleznic/github-reusable-workflows/.github/workflows/version-tag.yml@1832ea3171529c36e663d34965917c9f14694ce5 # v1.9.0
+    uses: agusgonzaleznic/github-reusable-workflows/.github/workflows/version-tag.yml@973ef56b7c5ef15c5cdb694ae8d57ba7929539bd # v1.11.0
     with:
       version-from-tags: true
       release-paths: |
@@ -68,7 +68,7 @@ jobs:
       contents: write
       actions: write
       pull-requests: read
-    uses: agusgonzaleznic/github-reusable-workflows/.github/workflows/version-tag.yml@1832ea3171529c36e663d34965917c9f14694ce5 # v1.9.0
+    uses: agusgonzaleznic/github-reusable-workflows/.github/workflows/version-tag.yml@973ef56b7c5ef15c5cdb694ae8d57ba7929539bd # v1.11.0
     with:
       version-from-tags: true
       release-paths: |
